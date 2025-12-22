@@ -63,16 +63,25 @@ st.markdown("---")
 if st.session_state.get("show_add_form", False):
     with st.expander("➕ 添加新用户", expanded=True):
         with st.form("add_user_form"):
-            col_form1, col_form2, col_form3 = st.columns([3, 2, 2])
+            col_form1, col_form2 = st.columns([3, 3])
 
             with col_form1:
                 new_username = st.text_input(
-                    "用户名",
+                    "用户名 *",
                     placeholder="输入 Twitter 用户名（不含 @）",
-                    help="例如：elonmusk",
+                    help="例如：elonmusk（必填，唯一标识）",
                 )
 
             with col_form2:
+                new_display_name = st.text_input(
+                    "展示名称",
+                    placeholder="输入展示名称",
+                    help="用于界面显示的名称（选填）",
+                )
+
+            col_form3, col_form4 = st.columns([3, 3])
+
+            with col_form3:
                 new_priority = st.slider(
                     "优先级",
                     min_value=1,
@@ -81,7 +90,7 @@ if st.session_state.get("show_add_form", False):
                     help="优先级越高，采集频率越高",
                 )
 
-            with col_form3:
+            with col_form4:
                 new_notes = st.text_input("备注", placeholder="可选")
 
             col_btn1, col_btn2 = st.columns([1, 5])
@@ -97,7 +106,12 @@ if st.session_state.get("show_add_form", False):
                     st.error("❌ 用户名不能为空")
                 else:
                     db = get_db_helper()
-                    success = db.add_user(new_username, new_priority, new_notes)
+                    success = db.add_user(
+                        new_username,
+                        new_priority,
+                        new_notes,
+                        new_display_name
+                    )
 
                     if success:
                         st.success(f"✅ 成功添加用户: {new_username}")
@@ -137,19 +151,22 @@ try:
 
         # 格式化数据展示
         display_df = df.copy()
+        display_df["展示名称"] = display_df["display_name"].fillna("")
         display_df["优先级"] = display_df["priority"].apply(format_priority)
         display_df["状态"] = display_df["is_active"].apply(format_status)
         display_df["最后采集"] = display_df["last_crawled_at"].apply(
-            lambda x: format_datetime(x) if x else "从未"
+            lambda x: format_datetime(x) if pd.notna(x) else "从未"
         )
         display_df["推文数"] = display_df["tweet_count"].apply(format_number)
-        display_df["创建时间"] = display_df["created_at"].apply(format_datetime)
+        display_df["创建时间"] = display_df["created_at"].apply(
+            lambda x: format_datetime(x) if pd.notna(x) else "未知"
+        )
 
         # 选择显示列
         display_df = display_df[
-            ["username", "优先级", "状态", "最后采集", "推文数", "创建时间", "notes"]
+            ["username", "展示名称", "优先级", "状态", "最后采集", "推文数", "创建时间", "notes"]
         ]
-        display_df.columns = ["用户名", "优先级", "状态", "最后采集", "推文数", "创建时间", "备注"]
+        display_df.columns = ["用户名", "展示名称", "优先级", "状态", "最后采集", "推文数", "创建时间", "备注"]
 
         # 使用 AgGrid 展示表格
         gb = GridOptionsBuilder.from_dataframe(display_df)
@@ -161,7 +178,8 @@ try:
             editable=False,
         )
         gb.configure_selection(selection_mode="single", use_checkbox=True)
-        gb.configure_column("用户名", pinned="left", width=150)
+        gb.configure_column("用户名", pinned="left", width=120)
+        gb.configure_column("展示名称", width=150)
         gb.configure_column("优先级", width=100)
         gb.configure_column("状态", width=100)
         gb.configure_column("最后采集", width=180)
@@ -251,6 +269,13 @@ try:
                     col_edit1, col_edit2 = st.columns(2)
 
                     with col_edit1:
+                        edit_display_name = st.text_input(
+                            "展示名称",
+                            value=original_row["display_name"] if original_row["display_name"] else "",
+                            help="用于界面显示的名称（选填）",
+                        )
+
+                    with col_edit2:
                         edit_priority = st.slider(
                             "优先级",
                             min_value=1,
@@ -258,11 +283,11 @@ try:
                             value=int(original_row["priority"]),
                         )
 
-                    with col_edit2:
-                        edit_notes = st.text_input(
-                            "备注",
-                            value=original_row["notes"] if original_row["notes"] else "",
-                        )
+                    edit_notes = st.text_area(
+                        "备注",
+                        value=original_row["notes"] if original_row["notes"] else "",
+                        height=80,
+                    )
 
                     col_edit_btn1, col_edit_btn2 = st.columns([1, 5])
 
@@ -274,7 +299,12 @@ try:
 
                     if submit_edit:
                         db = get_db_helper()
-                        if db.update_user(selected_username, edit_priority, edit_notes):
+                        if db.update_user(
+                            selected_username,
+                            priority=edit_priority,
+                            notes=edit_notes,
+                            display_name=edit_display_name
+                        ):
                             st.success(f"✅ 已更新用户: {selected_username}")
                             st.session_state.edit_user = None
                             st.cache_data.clear()

@@ -64,27 +64,28 @@ class DatabaseHelper:
         results = self.pg_client.execute_query(query, (username,))
         return results[0] if results else None
 
-    def add_user(self, username: str, priority: int = 1, notes: str = "") -> bool:
+    def add_user(self, username: str, priority: int = 1, notes: str = "", display_name: str = "") -> bool:
         """
         添加监听用户
 
         Args:
-            username: 用户名
+            username: 用户名（必填）
             priority: 优先级 (1-10)
-            notes: 备注
+            notes: 备注（选填）
+            display_name: 展示名称（选填）
 
         Returns:
             是否成功
         """
         query = """
-            INSERT INTO watched_users (username, priority, notes, is_active, created_at)
-            VALUES (%s, %s, %s, TRUE, NOW())
+            INSERT INTO watched_users (username, display_name, priority, notes, is_active, created_at)
+            VALUES (%s, %s, %s, %s, TRUE, NOW())
             ON CONFLICT (username) DO NOTHING
         """
-        return self.pg_client.execute_update(query, (username, priority, notes))
+        return self.pg_client.execute_update(query, (username, display_name, priority, notes))
 
     def update_user(
-        self, username: str, priority: int = None, notes: str = None, is_active: bool = None
+        self, username: str, priority: int = None, notes: str = None, display_name: str = None, is_active: bool = None
     ) -> bool:
         """
         更新用户信息
@@ -93,6 +94,7 @@ class DatabaseHelper:
             username: 用户名
             priority: 优先级（可选）
             notes: 备注（可选）
+            display_name: 展示名称（可选）
             is_active: 是否启用（可选）
 
         Returns:
@@ -108,6 +110,10 @@ class DatabaseHelper:
         if notes is not None:
             updates.append("notes = %s")
             params.append(notes)
+
+        if display_name is not None:
+            updates.append("display_name = %s")
+            params.append(display_name)
 
         if is_active is not None:
             updates.append("is_active = %s")
