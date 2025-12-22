@@ -46,9 +46,20 @@ class StatusPageSource(InstanceSource):
         self.url = url
         self.timeout = timeout
         self.session = requests.Session()
+        # 使用更完整的浏览器请求头，模拟真实浏览器
         self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
         })
 
     def get_source_name(self) -> str:
@@ -56,48 +67,76 @@ class StatusPageSource(InstanceSource):
 
     def fetch_instances(self) -> List[str]:
         """
-        从状态页面获取实例列表
+        从状态页面获取实例列表（带重试机制）
 
         Returns:
             实例 URL 列表
         """
-        try:
-            logger.info(f"从 {self.url} 获取实例列表...")
-            response = self.session.get(self.url, timeout=self.timeout)
-            response.raise_for_status()
+        from src.config.settings import settings
+        import time
 
-            soup = BeautifulSoup(response.text, "html.parser")
-            instances = set()
+        max_retries = settings.HTTP_RETRY_COUNT
+        retry_delay = settings.HTTP_RETRY_DELAY
 
-            # 尝试多种可能的选择器
-            selectors = [
-                "a[href*='nitter']",
-                "a[href*='twitter']",
-                "a[href*='bird']",
-                "table a",
-                ".instance a",
-                "td a",
-            ]
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(f"从 {self.url} 获取实例列表... (尝试 {attempt}/{max_retries})")
+                response = self.session.get(self.url, timeout=self.timeout, allow_redirects=True)
+                response.raise_for_status()
 
-            for selector in selectors:
-                links = soup.select(selector)
-                for link in links:
-                    href = link.get("href", "")
-                    if href and self._is_nitter_url(href):
-                        base_url = self._extract_base_url(href)
-                        if base_url:
-                            instances.add(base_url)
+                soup = BeautifulSoup(response.text, "html.parser")
+                instances = set()
 
-            result = list(instances)
-            logger.info(f"✓ 从状态页面发现 {len(result)} 个实例")
-            return result
+                # 尝试多种可能的选择器
+                selectors = [
+                    "a[href*='nitter']",
+                    "a[href*='twitter']",
+                    "a[href*='bird']",
+                    "table a",
+                    ".instance a",
+                    "td a",
+                ]
 
-        except requests.RequestException as e:
-            logger.warning(f"✗ 从状态页面获取失败: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"✗ 解析状态页面时出错: {e}")
-            return []
+                for selector in selectors:
+                    links = soup.select(selector)
+                    for link in links:
+                        href = link.get("href", "")
+                        if href and self._is_nitter_url(href):
+                            base_url = self._extract_base_url(href)
+                            if base_url:
+                                instances.add(base_url)
+
+                result = list(instances)
+                logger.info(f"✓ 从状态页面发现 {len(result)} 个实例")
+                return result
+
+            except requests.exceptions.Timeout:
+                logger.warning(f"✗ 从状态页面获取超时 (尝试 {attempt}/{max_retries})")
+                if attempt < max_retries:
+                    time.sleep(retry_delay)
+                    continue
+
+            except requests.exceptions.ConnectionError as e:
+                logger.warning(f"✗ 从状态页面获取连接失败 (尝试 {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    time.sleep(retry_delay)
+                    continue
+
+            except requests.RequestException as e:
+                logger.warning(f"✗ 从状态页面获取失败 (尝试 {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    time.sleep(retry_delay)
+                    continue
+
+            except Exception as e:
+                logger.error(f"✗ 解析状态页面时出错 (尝试 {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    time.sleep(retry_delay)
+                    continue
+
+        # 所有重试都失败
+        logger.error(f"✗ 从状态页面获取失败，已重试 {max_retries} 次")
+        return []
 
     def _is_nitter_url(self, url: str) -> bool:
         """判断是否为 Nitter 相关 URL"""
@@ -167,4 +206,45 @@ def get_default_sources() -> InstanceSourceManager:
     # manager.add_source(CommunityAPISource("https://api.nitter.com/instances"))
 
     return manager
+
+
+if __name__ == "__main__":
+    """调试入口"""
+    import sys
+
+    # 设置日志级别
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="[%(asctime)s] [%(levelname)s] [%(name)s] - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    print("=" * 80)
+    print("Nitter 实例来源获取测试")
+    print("=" * 80)
+    print()
+
+    # 测试 1: 单个来源
+    print("【测试 1】从状态页面获取实例")
+    print("-" * 80)
+    source = StatusPageSource("https://status.d420.de/", timeout=15)
+    instances = source.fetch_instances()
+    print(f"\n✓ 获取到 {len(instances)} 个实例:\n")
+    for i, inst in enumerate(instances, 1):
+        print(f"  {i}. {inst}")
+    print()
+
+    # # 测试 2: 使用 InstanceSourceManager
+    # print("【测试 2】使用 InstanceSourceManager 整合所有来源")
+    # print("-" * 80)
+    # manager = get_default_sources()
+    # all_instances = manager.fetch_all_instances()
+    # print(f"\n✓ 总计获取到 {len(all_instances)} 个不重复实例:\n")
+    # for i, inst in enumerate(sorted(all_instances), 1):
+    #     print(f"  {i}. {inst}")
+    # print()
+    #
+    # print("=" * 80)
+    # print("测试完成")
+    # print("=" * 80)
 

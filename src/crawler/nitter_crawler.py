@@ -35,8 +35,20 @@ class NitterCrawler:
         self.retry = settings.CRAWLER_RETRY
         self.delay = settings.CRAWLER_DELAY
         self.session = requests.Session()
+        # 使用更完整的浏览器请求头，模拟真实浏览器
         self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
         })
 
         # 初始化实例列表
@@ -81,6 +93,66 @@ class NitterCrawler:
 
         self._last_refresh = current_time
 
+    def _request_with_retry(self, url: str, max_retries: int = None) -> Optional[requests.Response]:
+        """
+        带重试机制的 HTTP 请求
+
+        Args:
+            url: 请求 URL
+            max_retries: 最大重试次数，默认使用配置
+
+        Returns:
+            Response 对象，失败返回 None
+        """
+        if max_retries is None:
+            max_retries = settings.HTTP_RETRY_COUNT
+
+        last_exception = None
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.debug(f"正在请求 {url} (尝试 {attempt}/{max_retries})")
+                response = self.session.get(url, timeout=self.timeout, allow_redirects=True)
+                response.raise_for_status()
+                return response
+
+            except requests.exceptions.Timeout as e:
+                last_exception = e
+                logger.debug(f"请求超时 {url} (尝试 {attempt}/{max_retries})")
+                if attempt < max_retries:
+                    time.sleep(settings.HTTP_RETRY_DELAY)
+                    continue
+
+            except requests.exceptions.ConnectionError as e:
+                last_exception = e
+                logger.debug(f"连接错误 {url} (尝试 {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    time.sleep(settings.HTTP_RETRY_DELAY)
+                    continue
+
+            except requests.exceptions.HTTPError as e:
+                # HTTP 错误（4xx, 5xx）通常不应该重试，除非是 5xx 服务器错误
+                last_exception = e
+                if e.response.status_code >= 500:
+                    logger.debug(f"服务器错误 {url} (尝试 {attempt}/{max_retries}): {e.response.status_code}")
+                    if attempt < max_retries:
+                        time.sleep(settings.HTTP_RETRY_DELAY)
+                        continue
+                # 4xx 客户端错误不重试
+                logger.debug(f"HTTP 错误 {url}: {e.response.status_code}")
+                return None
+
+            except requests.RequestException as e:
+                last_exception = e
+                logger.debug(f"请求异常 {url} (尝试 {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    time.sleep(settings.HTTP_RETRY_DELAY)
+                    continue
+
+        # 所有重试都失败
+        logger.warning(f"请求失败 {url}，已重试 {max_retries} 次: {last_exception}")
+        return None
+
     def fetch_user_timeline(
         self, username: str, max_tweets: int = 20
     ) -> Optional[List[Dict]]:
@@ -115,8 +187,14 @@ class NitterCrawler:
                     f"{instance} 获取用户 {username} 的推文"
                 )
 
-                response = self.session.get(url, timeout=self.timeout)
-                response.raise_for_status()
+                # 使用带重试的请求方法
+                response = self._request_with_retry(url)
+
+                if not response:
+                    logger.warning(f"✗ {instance} 请求失败，尝试下一个实例")
+                    if instance_index < len(self._instances_cache):
+                        time.sleep(self.delay)
+                    continue
 
                 # 解析 HTML
                 tweets = self._parse_timeline(response.text, username)
@@ -129,16 +207,6 @@ class NitterCrawler:
                 else:
                     logger.warning(f"✗ {instance} 返回空推文列表，尝试下一个实例")
                     continue
-
-            except requests.RequestException as e:
-                logger.warning(
-                    f"✗ 实例 {instance} 请求失败: {e}，"
-                    f"尝试下一个实例 ({instance_index}/{len(self._instances_cache)})"
-                )
-                # 短暂延迟后尝试下一个实例
-                if instance_index < len(self._instances_cache):
-                    time.sleep(self.delay)
-                continue
 
             except Exception as e:
                 logger.error(f"✗ 实例 {instance} 解析失败: {e}，尝试下一个实例")
@@ -253,7 +321,7 @@ if __name__ == "__main__":
     # 测试代码
     logging.basicConfig(level=logging.INFO)
     crawler = NitterCrawler()
-    tweets = crawler.fetch_user_timeline("elonmusk", max_tweets=5)
+    tweets = crawler.fetch_user_timeline("myfxtrader", max_tweets=5)
 
     for tweet in tweets:
         print(f"Tweet ID: {tweet['tweet_id']}")

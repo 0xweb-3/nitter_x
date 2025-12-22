@@ -34,16 +34,25 @@ class NitterInstanceChecker:
         self.timeout = timeout
         self.max_workers = max_workers
         self.session = requests.Session()
+        # 使用更完整的浏览器请求头，模拟真实浏览器
         self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
             "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
         })
 
     def check_instance(self, instance_url: str) -> Tuple[str, bool, float]:
         """
-        检查单个实例的健康状态
+        检查单个实例的健康状态（带重试机制）
 
         Args:
             instance_url: 实例 URL
@@ -51,53 +60,76 @@ class NitterInstanceChecker:
         Returns:
             (URL, 是否可用, 响应时间)
         """
-        try:
-            start_time = time.time()
+        from src.config.settings import settings
 
-            # 访问实例首页
-            response = self.session.get(
-                instance_url,
-                timeout=self.timeout,
-                allow_redirects=True
-            )
+        max_retries = settings.HTTP_RETRY_COUNT
+        retry_delay = settings.HTTP_RETRY_DELAY
 
-            elapsed = time.time() - start_time
+        for attempt in range(1, max_retries + 1):
+            try:
+                start_time = time.time()
 
-            # 判断是否可用
-            if response.status_code == 200:
-                # 检查是否包含 Nitter 特征（更严格的判断）
-                content = response.text.lower()
-
-                # 排除明显不是 Nitter 的网站
-                if "github" in instance_url.lower():
-                    return (instance_url, False, elapsed)
-
-                # 检查 Nitter 特征
-                nitter_indicators = ["nitter", "instance", "bird", "unofficial"]
-                has_indicator = any(keyword in content for keyword in nitter_indicators)
-
-                # 或者 URL 中包含 nitter 相关关键词
-                has_nitter_url = any(
-                    keyword in instance_url.lower()
-                    for keyword in ["nitter", "bird", "twitter", "xcancel"]
+                # 访问实例首页
+                response = self.session.get(
+                    instance_url,
+                    timeout=self.timeout,
+                    allow_redirects=True
                 )
 
-                is_nitter = has_indicator or has_nitter_url
+                elapsed = time.time() - start_time
 
-                if is_nitter:
-                    logger.info(f"✓ {instance_url} 可用 (响应时间: {elapsed:.2f}s)")
-                    return (instance_url, True, elapsed)
+                # 判断是否可用
+                if response.status_code == 200:
+                    # 检查是否包含 Nitter 特征（更严格的判断）
+                    content = response.text.lower()
 
-            logger.debug(f"✗ {instance_url} 不可用 (状态码: {response.status_code})")
-            return (instance_url, False, elapsed)
+                    # 排除明显不是 Nitter 的网站
+                    if "github" in instance_url.lower():
+                        return (instance_url, False, elapsed)
 
-        except requests.exceptions.Timeout:
-            logger.debug(f"✗ {instance_url} 超时")
-            return (instance_url, False, self.timeout)
+                    # 检查 Nitter 特征
+                    nitter_indicators = ["nitter", "instance", "bird", "unofficial"]
+                    has_indicator = any(keyword in content for keyword in nitter_indicators)
 
-        except Exception as e:
-            logger.debug(f"✗ {instance_url} 错误: {e}")
-            return (instance_url, False, 0)
+                    # 或者 URL 中包含 nitter 相关关键词
+                    has_nitter_url = any(
+                        keyword in instance_url.lower()
+                        for keyword in ["nitter", "bird", "twitter", "xcancel"]
+                    )
+
+                    is_nitter = has_indicator or has_nitter_url
+
+                    if is_nitter:
+                        logger.info(f"✓ {instance_url} 可用 (响应时间: {elapsed:.2f}s, 尝试: {attempt})")
+                        return (instance_url, True, elapsed)
+
+                logger.debug(f"✗ {instance_url} 不可用 (状态码: {response.status_code})")
+                # 状态码不是 200，不重试
+                return (instance_url, False, elapsed)
+
+            except requests.exceptions.Timeout:
+                logger.debug(f"✗ {instance_url} 超时 (尝试 {attempt}/{max_retries})")
+                if attempt < max_retries:
+                    time.sleep(retry_delay)
+                    continue
+                return (instance_url, False, self.timeout)
+
+            except requests.exceptions.ConnectionError as e:
+                logger.debug(f"✗ {instance_url} 连接错误 (尝试 {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    time.sleep(retry_delay)
+                    continue
+                return (instance_url, False, 0)
+
+            except Exception as e:
+                logger.debug(f"✗ {instance_url} 错误 (尝试 {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    time.sleep(retry_delay)
+                    continue
+                return (instance_url, False, 0)
+
+        # 所有重试都失败
+        return (instance_url, False, 0)
 
     def check_instances_batch(self, instances: List[str]) -> List[Dict[str, any]]:
         """

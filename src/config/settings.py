@@ -46,6 +46,12 @@ class Settings:
     CRAWLER_RETRY: int = int(os.getenv("CRAWLER_RETRY", "3"))
     CRAWLER_DELAY: float = float(os.getenv("CRAWLER_DELAY", "1.0"))
 
+    # HTTP 请求配置
+    HTTP_RETRY_COUNT: int = int(os.getenv("HTTP_RETRY_COUNT", "3"))  # HTTP 请求重试次数
+    HTTP_RETRY_DELAY: float = float(
+        os.getenv("HTTP_RETRY_DELAY", "2")
+    )  # HTTP 请求重试间隔（秒）
+
     # 采集循环配置
     CRAWL_INTERVAL: int = int(os.getenv("CRAWL_INTERVAL", "60"))  # 采集循环间隔（秒）
     CRAWL_USER_INTERVAL: int = int(
