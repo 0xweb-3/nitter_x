@@ -1,11 +1,12 @@
 """
 Nitter 实例健康检测模块
-检测实例的可用性和响应时间
+检测实例的可用性和响应时间，并使用 Redis 缓存结果
 """
 
+import json
 import time
 import logging
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
@@ -13,6 +14,8 @@ import requests
 from src.utils.logger import setup_logger
 from src.crawler.instance_sources import get_default_sources
 from src.crawler.constants import KNOWN_INSTANCES
+from src.storage.redis_client import get_redis_client
+from src.config.redis_keys import REDIS_KEY_AVAILABLE_INSTANCES, CACHE_EXPIRE_INSTANCES
 
 logger = setup_logger("nitter_discovery", log_file="logs/nitter_discovery.log")
 
@@ -135,7 +138,7 @@ class NitterInstanceChecker:
 
 
 class NitterInstanceDiscovery:
-    """Nitter 实例发现与管理（整合来源获取和健康检测）"""
+    """Nitter 实例发现与管理（整合来源获取和健康检测，使用 Redis 缓存）"""
 
     def __init__(self, timeout: int = 10, max_workers: int = 20):
         """
@@ -147,6 +150,101 @@ class NitterInstanceDiscovery:
         """
         self.checker = NitterInstanceChecker(timeout, max_workers)
         self.source_manager = get_default_sources()
+        self.redis_client = None
+
+    def _get_redis_client(self):
+        """延迟初始化 Redis 客户端"""
+        if self.redis_client is None:
+            try:
+                self.redis_client = get_redis_client()
+            except Exception as e:
+                logger.warning(f"Redis 连接失败，缓存功能不可用: {e}")
+        return self.redis_client
+
+    def _load_from_cache(self) -> Optional[List[Dict[str, any]]]:
+        """
+        从 Redis 缓存加载可用实例
+
+        Returns:
+            缓存的实例列表，如果不存在或过期返回 None
+        """
+        redis = self._get_redis_client()
+        if not redis:
+            return None
+
+        try:
+            cached = redis.get_cache(REDIS_KEY_AVAILABLE_INSTANCES)
+            if cached:
+                instances = json.loads(cached)
+                logger.info(f"✓ 从 Redis 缓存加载 {len(instances)} 个可用实例")
+                return instances
+            else:
+                logger.debug("Redis 缓存为空或已过期")
+                return None
+        except Exception as e:
+            logger.warning(f"从 Redis 读取缓存失败: {e}")
+            return None
+
+    def _save_to_cache(self, instances: List[Dict[str, any]]) -> bool:
+        """
+        保存可用实例到 Redis 缓存
+
+        Args:
+            instances: 可用实例列表
+
+        Returns:
+            是否保存成功
+        """
+        redis = self._get_redis_client()
+        if not redis:
+            return False
+
+        try:
+            data = json.dumps(instances, ensure_ascii=False)
+            success = redis.set_cache(
+                REDIS_KEY_AVAILABLE_INSTANCES,
+                data,
+                expire=CACHE_EXPIRE_INSTANCES
+            )
+            if success:
+                logger.info(f"✓ 已保存 {len(instances)} 个可用实例到 Redis 缓存（有效期 3 小时）")
+            return success
+        except Exception as e:
+            logger.error(f"保存到 Redis 缓存失败: {e}")
+            return False
+
+    def get_available_instances(
+        self,
+        force_refresh: bool = False,
+        use_external_sources: bool = True,
+        min_instances: int = 5
+    ) -> List[Dict[str, any]]:
+        """
+        获取可用实例列表（优先从缓存读取）
+
+        Args:
+            force_refresh: 是否强制刷新（忽略缓存）
+            use_external_sources: 是否从第三方来源获取实例
+            min_instances: 最少返回的实例数
+
+        Returns:
+            可用实例列表，按响应时间排序
+        """
+        # 如果不强制刷新，先尝试从缓存读取
+        if not force_refresh:
+            cached = self._load_from_cache()
+            if cached:
+                return cached
+
+        # 缓存不存在或强制刷新，重新发现和检测
+        logger.info("开始重新发现和检测可用实例...")
+        instances = self.discover_available_instances(use_external_sources, min_instances)
+
+        # 保存到缓存
+        if instances:
+            self._save_to_cache(instances)
+
+        return instances
 
     def discover_available_instances(
         self,
@@ -189,108 +287,68 @@ class NitterInstanceDiscovery:
     def get_available_urls(
         self,
         max_count: int = 10,
-        max_response_time: float = 5.0
+        max_response_time: float = 5.0,
+        force_refresh: bool = False
     ) -> List[str]:
         """
-        获取可用实例 URL 列表
+        获取可用实例 URL 列表（优先从缓存）
 
         Args:
             max_count: 最多返回的实例数
             max_response_time: 最大响应时间（秒）
+            force_refresh: 是否强制刷新缓存
 
         Returns:
-            URL 列表
+            URL 列表，按响应时间排序
         """
-        instances = self.discover_available_instances()
+        instances = self.get_available_instances(force_refresh=force_refresh)
 
         # 过滤响应时间
         filtered = [
             inst["url"] for inst in instances
-            if inst["response_time"] <= max_response_time
+            if inst.get("response_time", 0) <= max_response_time
         ]
 
         return filtered[:max_count]
-
-
-def update_env_file(instances: List[str], env_file: str = ".env"):
-    """
-    更新 .env 文件中的 NITTER_INSTANCES
-
-    Args:
-        instances: 实例列表
-        env_file: .env 文件路径
-    """
-    import os
-
-    if not instances:
-        logger.warning("没有可用实例，不更新 .env 文件")
-        return
-
-    instances_str = ",".join(instances)
-
-    # 读取现有文件
-    if os.path.exists(env_file):
-        with open(env_file, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-
-        # 更新 NITTER_INSTANCES 行
-        updated = False
-        for i, line in enumerate(lines):
-            if line.startswith("NITTER_INSTANCES="):
-                lines[i] = f"NITTER_INSTANCES={instances_str}\n"
-                updated = True
-                break
-
-        if not updated:
-            lines.append(f"\nNITTER_INSTANCES={instances_str}\n")
-
-        # 写回文件
-        with open(env_file, "w", encoding="utf-8") as f:
-            f.writelines(lines)
-
-        logger.info(f"已更新 {env_file} 文件，共 {len(instances)} 个实例")
-    else:
-        logger.error(f"{env_file} 文件不存在")
 
 
 def main():
     """主函数"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Nitter 实例发现与健康检测")
+    parser = argparse.ArgumentParser(description="Nitter 实例发现与健康检测（使用 Redis 缓存）")
     parser.add_argument("--count", type=int, default=10, help="返回的最大实例数")
     parser.add_argument("--timeout", type=int, default=10, help="请求超时时间（秒）")
-    parser.add_argument("--update-env", action="store_true", help="更新 .env 文件")
     parser.add_argument("--max-response-time", type=float, default=5.0, help="最大响应时间（秒）")
-    parser.add_argument("--no-sources", action="store_true", help="不从第三方来源获取，只使用内置列表")
+    parser.add_argument("--force-refresh", action="store_true", help="强制刷新缓存，重新检测")
+    parser.add_argument("--no-external", action="store_true", help="不从第三方来源获取，只使用内置列表")
 
     args = parser.parse_args()
 
     # 创建发现器
     discovery = NitterInstanceDiscovery(timeout=args.timeout)
 
-    # 发现可用实例
+    # 获取可用实例
     print("\n" + "=" * 80)
     print("Nitter 实例健康检测")
     print("=" * 80 + "\n")
 
+    if args.force_refresh:
+        print("⚡ 强制刷新模式，忽略缓存\n")
+
     available_urls = discovery.get_available_urls(
         max_count=args.count,
-        max_response_time=args.max_response_time
+        max_response_time=args.max_response_time,
+        force_refresh=args.force_refresh
     )
 
     if available_urls:
-        print(f"✓ 发现 {len(available_urls)} 个可用实例:\n")
+        print(f"✓ 可用实例 {len(available_urls)} 个:\n")
         for i, url in enumerate(available_urls, 1):
             print(f"  {i}. {url}")
 
-        # 更新 .env 文件
-        if args.update_env:
-            print("\n正在更新 .env 文件...")
-            update_env_file(available_urls)
-            print("✓ .env 文件已更新")
-        else:
-            print("\n提示: 使用 --update-env 参数可以自动更新 .env 文件")
+        print("\n💡 实例列表已缓存到 Redis（有效期 3 小时）")
+        print("   下次调用将直接从缓存读取，无需重新检测")
 
     else:
         print("✗ 未发现可用实例")
@@ -300,3 +358,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

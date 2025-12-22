@@ -1,18 +1,19 @@
 """
 Nitter 推文爬虫
-负责从 Nitter 实例获取用户推文信息
+负责从 Nitter 实例获取用户推文信息（从 Redis 获取可用实例）
 """
 
 import time
-import random
 import logging
 from typing import List, Dict, Optional
+
 from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
 
 from src.config.settings import settings
+from src.crawler.constants import KNOWN_INSTANCES
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +21,16 @@ logger = logging.getLogger(__name__)
 class NitterCrawler:
     """Nitter 推文爬虫类"""
 
-    def __init__(self):
-        self.instances = settings.NITTER_INSTANCES
+    def __init__(self, use_redis_instances: bool = True, max_instances: int = 20):
+        """
+        初始化爬虫
+
+        Args:
+            use_redis_instances: 是否从 Redis 获取实例列表（推荐）
+            max_instances: 最多使用的实例数量（默认20个）
+        """
+        self.use_redis_instances = use_redis_instances
+        self.max_instances = max_instances
         self.timeout = settings.CRAWLER_TIMEOUT
         self.retry = settings.CRAWLER_RETRY
         self.delay = settings.CRAWLER_DELAY
@@ -30,13 +39,51 @@ class NitterCrawler:
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         })
 
-    def get_random_instance(self) -> str:
-        """随机选择一个 Nitter 实例"""
-        return random.choice(self.instances)
+        # 初始化实例列表
+        self._instances_cache = []
+        self._last_refresh = 0
+        self._refresh_instances()
+
+    def _refresh_instances(self):
+        """刷新实例列表（获取前 N 个最快的实例）"""
+        current_time = time.time()
+
+        # 每 10 分钟最多刷新一次
+        if current_time - self._last_refresh < 600:
+            return
+
+        if self.use_redis_instances:
+            # 从 Redis 获取可用实例
+            try:
+                from src.crawler.instance_discovery import NitterInstanceDiscovery
+
+                discovery = NitterInstanceDiscovery()
+                instances_data = discovery.get_available_instances(force_refresh=False)
+
+                if instances_data:
+                    # 提取 URL，已按响应时间排序，取前 N 个
+                    self._instances_cache = [
+                        inst["url"] for inst in instances_data[:self.max_instances]
+                    ]
+                    logger.info(
+                        f"从 Redis 加载前 {len(self._instances_cache)} 个可用实例"
+                    )
+                else:
+                    logger.warning("Redis 中没有可用实例，使用内置列表")
+                    self._instances_cache = KNOWN_INSTANCES[:self.max_instances].copy()
+
+            except Exception as e:
+                logger.error(f"从 Redis 获取实例失败: {e}，使用内置列表")
+                self._instances_cache = KNOWN_INSTANCES[:self.max_instances].copy()
+        else:
+            # 使用配置文件中的实例
+            self._instances_cache = settings.NITTER_INSTANCES[:self.max_instances]
+
+        self._last_refresh = current_time
 
     def fetch_user_timeline(self, username: str, max_tweets: int = 20) -> List[Dict]:
         """
-        获取用户时间线推文
+        获取用户时间线推文（按顺序尝试所有可用实例）
 
         Args:
             username: Twitter 用户名
@@ -45,14 +92,24 @@ class NitterCrawler:
         Returns:
             推文列表，每个推文为字典格式
         """
+        # 刷新实例列表
+        self._refresh_instances()
+
+        if not self._instances_cache:
+            logger.error("没有可用的 Nitter 实例")
+            return []
+
         tweets = []
 
-        for attempt in range(self.retry):
+        # 按顺序尝试每个实例
+        for instance_index, instance in enumerate(self._instances_cache, 1):
             try:
-                instance = self.get_random_instance()
                 url = f"{instance}/{username}"
 
-                logger.info(f"尝试从 {instance} 获取用户 {username} 的推文 (第 {attempt + 1} 次)")
+                logger.info(
+                    f"尝试从实例 {instance_index}/{len(self._instances_cache)}: "
+                    f"{instance} 获取用户 {username} 的推文"
+                )
 
                 response = self.session.get(url, timeout=self.timeout)
                 response.raise_for_status()
@@ -60,20 +117,35 @@ class NitterCrawler:
                 # 解析 HTML
                 tweets = self._parse_timeline(response.text, username)
 
-                logger.info(f"成功获取 {len(tweets)} 条推文")
-                return tweets[:max_tweets]
+                if tweets:
+                    logger.info(
+                        f"✓ 成功从 {instance} 获取 {len(tweets)} 条推文"
+                    )
+                    return tweets[:max_tweets]
+                else:
+                    logger.warning(f"✗ {instance} 返回空推文列表，尝试下一个实例")
+                    continue
 
             except requests.RequestException as e:
-                logger.warning(f"请求失败 (第 {attempt + 1} 次): {e}")
-                if attempt < self.retry - 1:
-                    time.sleep(self.delay * (attempt + 1))
-                else:
-                    logger.error(f"重试 {self.retry} 次后仍然失败")
+                logger.warning(
+                    f"✗ 实例 {instance} 请求失败: {e}，"
+                    f"尝试下一个实例 ({instance_index}/{len(self._instances_cache)})"
+                )
+                # 短暂延迟后尝试下一个实例
+                if instance_index < len(self._instances_cache):
+                    time.sleep(self.delay)
+                continue
 
             except Exception as e:
-                logger.error(f"解析失败: {e}")
-                break
+                logger.error(f"✗ 实例 {instance} 解析失败: {e}，尝试下一个实例")
+                if instance_index < len(self._instances_cache):
+                    time.sleep(self.delay)
+                continue
 
+        # 所有实例都失败
+        logger.error(
+            f"所有 {len(self._instances_cache)} 个实例都无法获取用户 {username} 的推文"
+        )
         return tweets
 
     def _parse_timeline(self, html: str, username: str) -> List[Dict]:

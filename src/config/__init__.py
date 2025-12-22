@@ -1,5 +1,23 @@
 """配置管理模块"""
 
 from .settings import Settings
+from .redis_keys import (
+    REDIS_KEY_AVAILABLE_INSTANCES,
+    REDIS_KEY_INSTANCE_PREFIX,
+    REDIS_QUEUE_CRAWL,
+    REDIS_QUEUE_PROCESS,
+    REDIS_SET_DEDUP,
+    CACHE_EXPIRE_INSTANCES,
+    CACHE_EXPIRE_DEDUP,
+)
 
-__all__ = ["Settings"]
+__all__ = [
+    "Settings",
+    "REDIS_KEY_AVAILABLE_INSTANCES",
+    "REDIS_KEY_INSTANCE_PREFIX",
+    "REDIS_QUEUE_CRAWL",
+    "REDIS_QUEUE_PROCESS",
+    "REDIS_SET_DEDUP",
+    "CACHE_EXPIRE_INSTANCES",
+    "CACHE_EXPIRE_DEDUP",
+]
