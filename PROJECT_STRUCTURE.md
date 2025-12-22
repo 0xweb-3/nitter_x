@@ -43,6 +43,7 @@ nitter_x/
 │
 ├── main.py                      # 主程序入口
 ├── manage_users.py              # 用户管理工具
+├── discover_instances.py        # Nitter 实例发现工具（入口）
 ├── test_system.py               # 系统测试脚本
 │
 ├── DEPLOYMENT.md                # 部署文档
@@ -56,6 +57,16 @@ nitter_x/
 
 ### src/crawler
 - `nitter_crawler.py`: Nitter 推文爬虫，负责从 Nitter 实例获取推文
+- `constants.py`: 常量定义
+  - `KNOWN_INSTANCES`: 内置的 40+ 个已验证实例列表
+- `instance_sources.py`: Nitter 实例来源管理（支持扩展）
+  - `InstanceSource`: 实例来源基类
+  - `StatusPageSource`: 从 status.d420.de 获取实例
+  - `BuiltinSource`: 使用内置实例列表
+  - `InstanceSourceManager`: 多来源管理器
+- `instance_discovery.py`: Nitter 实例健康检测工具
+  - `NitterInstanceChecker`: 实例健康检测器
+  - `NitterInstanceDiscovery`: 整合来源获取和健康检测
 
 ### src/storage
 - `postgres_client.py`: PostgreSQL 数据库客户端，管理推文和用户数据
@@ -87,6 +98,14 @@ nitter_x/
 - `add`: 添加关注用户
 - `remove`: 移除关注用户
 - `enable/disable`: 启用/禁用用户
+
+### discover_instances.py
+Nitter 实例发现工具（入口脚本），功能：
+- 从状态监控网站发现可用实例
+- 并发健康检测所有已知实例
+- 按响应时间排序
+- 可选自动更新 .env 文件
+- 实际实现在 `src/crawler/instance_discovery.py`
 
 ### test_system.py
 系统测试脚本，验证：

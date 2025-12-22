@@ -1,0 +1,52 @@
+"""
+Nitter 实例相关常量
+"""
+
+# 已知的 Nitter 实例列表（经过验证的可用实例）
+KNOWN_INSTANCES = [
+    # 已验证高速实例（2025-12-22 测试）
+    "https://nitter.catsarch.com",
+    "https://nitter.pufe.org",
+    "https://nitter.net",
+    "https://nitter.tiekoetter.com",
+    "https://xcancel.com",
+    "https://bird.habedieeh.re",
+    "https://nitter.privacyredirect.com",
+    "https://nitter.adminforge.de",
+    # 其他已知实例
+    "https://nitter.poast.org",
+    "https://nitter.privacydev.net",
+    "https://nitter.pw",
+    "https://nitter.it",
+    "https://nitter.hu",
+    "https://nitter.unixfox.eu",
+    "https://nitter.domain.glass",
+    "https://birdsite.xanny.family",
+    "https://nitter.ktachibana.party",
+    "https://nitter.kavin.rocks",
+    "https://nitter.fdn.fr",
+    "https://nitter.1d4.us",
+    "https://twitter.femboy.hu",
+    "https://nitter.woodland.cafe",
+    "https://nitter.d420.de",
+    "https://nitter.esmailelbob.xyz",
+    "https://nitter.lunar.icu",
+    "https://nitter.mint.lgbt",
+    "https://nitter.bus-hit.me",
+    "https://nitter.projectsegfau.lt",
+    "https://nitter.in.projectsegfau.lt",
+    "https://singapore.unofficialbird.com",
+    "https://canada.unofficialbird.com",
+    "https://india.unofficialbird.com",
+    "https://nederland.unofficialbird.com",
+    "https://uk.unofficialbird.com",
+    "https://n.sneed.network",
+    "https://nitter.moomoo.me",
+    "https://nitter.hostux.net",
+    "https://nitter.platypush.tech",
+    "https://nitter.us.projectsegfau.lt",
+    "https://nitter.arcticfoxes.net",
+    "https://twitter.licson.net",
+    "https://nitter.cutelab.space",
+    "https://nitter.nl",
+]
