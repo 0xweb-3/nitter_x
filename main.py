@@ -134,6 +134,19 @@ def main():
     pg_client = get_postgres_client()
     redis_client = get_redis_client()
 
+    # 启动时清理可能存在的脏锁（避免上次异常退出遗留的锁）
+    lock_name = "crawler:main"
+    lock_key = f"lock:{lock_name}"
+    try:
+        # 强制删除可能存在的脏锁（不检查值，直接删除）
+        cleanup_result = redis_client.delete(lock_key)
+        if cleanup_result:
+            logger.info("✓ 已清理启动前的脏锁")
+        else:
+            logger.debug("启动前无需清理锁（锁不存在或已过期）")
+    except Exception as e:
+        logger.warning(f"清理启动锁时出错（可忽略）: {e}")
+
     cycle_count = 0  # 循环计数器
 
     try:
