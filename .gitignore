@@ -192,3 +192,9 @@ models
 chroma_db
 
 chroma_db_*
+
+# Nitter X Project specific
+logs/
+data/
+*.db
+*.sqlite

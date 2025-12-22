@@ -1,0 +1,25 @@
+# Core dependencies
+python-dotenv==1.0.0
+requests==2.31.0
+beautifulsoup4==4.12.2
+lxml==4.9.3
+
+# Database
+psycopg2-binary==2.9.9
+redis==5.0.1
+
+# Utilities
+python-dateutil==2.8.2
+
+# Development
+pytest==7.4.3
+pytest-cov==4.1.0
+black==23.12.1
+flake8==6.1.0
+
+# Web interface (预留)
+streamlit==1.29.0
+
+# LLM (预留)
+# openai==1.6.0
+# anthropic==0.8.0
