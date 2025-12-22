@@ -199,11 +199,11 @@ PostgreSQL-->>Streamlit: 结果集
 ```
 
 ## 实现进度
-* v1.0.1 基础环境构建，构建起docker-compose和.env
-* v1.0.2 实现推文获取
-* v1.0.3 实现内容管理
-* v1.0.4 实现内容展示
 
+## 启动界面
+```shell
+ ./start_streamlit.sh
+```
 
 
 ## 许可证

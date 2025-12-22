@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS tweets (
     content TEXT NOT NULL,
     clean_content TEXT,
     published_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    tweet_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     tags JSONB,
@@ -24,6 +25,7 @@ CREATE TABLE IF NOT EXISTS watched_users (
     priority INT DEFAULT 0,
     is_active BOOLEAN DEFAULT TRUE,
     last_crawled_at TIMESTAMP WITH TIME ZONE,
+    notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -72,6 +74,7 @@ CREATE INDEX IF NOT EXISTS idx_tweets_published_at ON tweets(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tweets_status ON tweets(status);
 CREATE INDEX IF NOT EXISTS idx_tweets_level ON tweets(level);
 CREATE INDEX IF NOT EXISTS idx_tweets_created_at ON tweets(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tweets_tweet_url ON tweets(tweet_url);
 
 CREATE INDEX IF NOT EXISTS idx_watched_users_username ON watched_users(username);
 CREATE INDEX IF NOT EXISTS idx_watched_users_is_active ON watched_users(is_active);

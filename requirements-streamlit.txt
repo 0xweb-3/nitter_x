@@ -1,0 +1,6 @@
+# Streamlit Web UI 依赖包
+streamlit>=1.29.0
+pandas>=2.0.0
+plotly>=5.18.0
+streamlit-aggrid>=0.3.4
+streamlit-autorefresh>=0.0.1
