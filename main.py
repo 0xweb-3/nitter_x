@@ -1,8 +1,10 @@
 """
-主程序入口 - 推文采集任务
+主程序入口 - 推文采集任务（持续运行版本）
 """
 
+import sys
 import time
+import signal
 import logging
 from typing import List
 
@@ -14,6 +16,18 @@ from src.storage.redis_client import get_redis_client
 
 # 设置日志
 logger = setup_logger("main", log_file="logs/crawler.log")
+
+# 全局运行状态标志
+running = True
+
+
+def signal_handler(sig, frame):
+    """处理终止信号（Ctrl+C）"""
+    global running
+    logger.info("\n" + "=" * 80)
+    logger.info("收到终止信号，正在优雅退出...")
+    logger.info("=" * 80)
+    running = False
 
 
 def crawl_user(username: str, crawler: NitterCrawler, pg_client, redis_client) -> int:
@@ -28,6 +42,9 @@ def crawl_user(username: str, crawler: NitterCrawler, pg_client, redis_client) -
 
     Returns:
         新增推文数量
+
+    Raises:
+        Exception: 当所有 Nitter 实例都失败时抛出异常
     """
     logger.info(f"开始采集用户: {username}")
 
@@ -38,8 +55,14 @@ def crawl_user(username: str, crawler: NitterCrawler, pg_client, redis_client) -
     # 从 Nitter 获取推文
     tweets = crawler.fetch_user_timeline(username, max_tweets=50)
 
+    # 如果返回 None，说明所有实例都失败
+    if tweets is None:
+        logger.error(f"用户 {username} 所有 Nitter 实例都失败，无法获取推文")
+        raise Exception(f"所有 Nitter 实例都失败")
+
+    # 如果返回空列表，说明成功但没有推文
     if not tweets:
-        logger.warning(f"用户 {username} 未获取到推文")
+        logger.info(f"用户 {username} 成功获取，但没有新推文")
         return 0
 
     new_count = 0
@@ -71,9 +94,18 @@ def crawl_user(username: str, crawler: NitterCrawler, pg_client, redis_client) -
 
 
 def main():
-    """主函数"""
+    """主函数 - 持续运行版本"""
+    global running
+
+    # 注册信号处理器
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     logger.info("=" * 80)
-    logger.info("推文采集任务启动")
+    logger.info("推文采集任务启动（持续运行模式）")
+    logger.info(f"采集循环间隔: {settings.CRAWL_INTERVAL} 秒")
+    logger.info(f"用户采集间隔: {settings.CRAWL_USER_INTERVAL} 秒")
+    logger.info("按 Ctrl+C 优雅退出")
     logger.info("=" * 80)
 
     # 初始化客户端
@@ -81,49 +113,106 @@ def main():
     pg_client = get_postgres_client()
     redis_client = get_redis_client()
 
+    cycle_count = 0  # 循环计数器
+
     try:
-        # 获取关注用户列表
-        watched_users = pg_client.get_watched_users(active_only=True)
-        logger.info(f"共有 {len(watched_users)} 个关注用户")
+        while running:
+            cycle_count += 1
+            cycle_start_time = time.time()
 
-        if not watched_users:
-            logger.warning("没有关注用户，请先添加用户到 watched_users 表")
-            return
-
-        total_new = 0
-
-        # 遍历每个用户进行采集
-        for user in watched_users:
-            username = user["username"]
+            logger.info("=" * 80)
+            logger.info(f"开始第 {cycle_count} 轮采集")
+            logger.info("=" * 80)
 
             try:
-                new_count = crawl_user(username, crawler, pg_client, redis_client)
-                total_new += new_count
-
-                # 更新最后采集时间
-                pg_client.execute_update(
-                    "UPDATE watched_users SET last_crawled_at = NOW() WHERE username = %s",
-                    (username,),
+                # 获取需要采集的用户列表（只获取距上次采集超过指定时间的用户）
+                watched_users = pg_client.get_watched_users(
+                    active_only=True, min_interval_seconds=settings.CRAWL_USER_INTERVAL
                 )
 
-                # 延迟，避免请求过快
-                time.sleep(settings.CRAWLER_DELAY)
+                if not watched_users:
+                    logger.info(
+                        f"暂无需要采集的用户（所有用户都在 {settings.CRAWL_USER_INTERVAL} 秒采集间隔内）"
+                    )
+                else:
+                    logger.info(
+                        f"本轮需要采集 {len(watched_users)} 个用户: "
+                        f"{', '.join([u['username'] for u in watched_users])}"
+                    )
+
+                total_new = 0
+
+                # 遍历每个用户进行采集
+                for user in watched_users:
+                    if not running:  # 检查是否收到退出信号
+                        break
+
+                    username = user["username"]
+
+                    try:
+                        new_count = crawl_user(
+                            username, crawler, pg_client, redis_client
+                        )
+                        total_new += new_count
+
+                        # 只有成功采集时才更新最后采集时间
+                        pg_client.execute_update(
+                            "UPDATE watched_users SET last_crawled_at = NOW() WHERE username = %s",
+                            (username,),
+                        )
+                        logger.info(f"✓ 用户 {username} 采集成功，已更新采集时间")
+
+                        # 延迟，避免请求过快
+                        if running:  # 确保延迟时不阻塞退出
+                            time.sleep(settings.CRAWLER_DELAY)
+
+                    except Exception as e:
+                        # 采集失败，不更新时间，下一轮会继续尝试
+                        logger.error(
+                            f"✗ 用户 {username} 采集失败: {e}，不更新采集时间，下一轮将继续尝试"
+                        )
+                        # 短暂延迟后继续下一个用户
+                        if running:
+                            time.sleep(settings.CRAWLER_DELAY)
+                        continue
+
+                cycle_duration = time.time() - cycle_start_time
+                logger.info("=" * 80)
+                logger.info(
+                    f"第 {cycle_count} 轮采集完成，耗时 {cycle_duration:.1f} 秒，新增 {total_new} 条推文"
+                )
+
+                if not running:  # 如果收到退出信号，不再等待
+                    break
+
+                # 等待下一轮采集
+                logger.info(f"等待 {settings.CRAWL_INTERVAL} 秒后开始下一轮采集...")
+                logger.info("=" * 80)
+
+                # 分段等待，以便更快响应退出信号
+                wait_time = settings.CRAWL_INTERVAL
+                while wait_time > 0 and running:
+                    sleep_chunk = min(1, wait_time)  # 每次最多等待1秒
+                    time.sleep(sleep_chunk)
+                    wait_time -= sleep_chunk
 
             except Exception as e:
-                logger.error(f"采集用户 {username} 时出错: {e}", exc_info=True)
-                continue
-
-        logger.info("=" * 80)
-        logger.info(f"采集任务完成，共新增 {total_new} 条推文")
-        logger.info("=" * 80)
+                logger.error(f"采集任务异常: {e}", exc_info=True)
+                if running:
+                    logger.info(f"等待 {settings.CRAWL_INTERVAL} 秒后重试...")
+                    time.sleep(settings.CRAWL_INTERVAL)
 
     except Exception as e:
-        logger.error(f"采集任务异常: {e}", exc_info=True)
+        logger.error(f"程序异常退出: {e}", exc_info=True)
 
     finally:
         # 清理资源
+        logger.info("正在清理资源...")
         pg_client.close()
         redis_client.close()
+        logger.info("=" * 80)
+        logger.info(f"推文采集任务已停止，共执行 {cycle_count} 轮采集")
+        logger.info("=" * 80)
 
 
 if __name__ == "__main__":

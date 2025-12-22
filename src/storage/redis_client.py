@@ -5,6 +5,7 @@ Redis 客户端
 
 import json
 import logging
+import uuid
 from typing import List, Optional, Any
 
 import redis

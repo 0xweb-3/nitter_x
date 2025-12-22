@@ -46,6 +46,12 @@ class Settings:
     CRAWLER_RETRY: int = int(os.getenv("CRAWLER_RETRY", "3"))
     CRAWLER_DELAY: float = float(os.getenv("CRAWLER_DELAY", "1.0"))
 
+    # 采集循环配置
+    CRAWL_INTERVAL: int = int(os.getenv("CRAWL_INTERVAL", "60"))  # 采集循环间隔（秒）
+    CRAWL_USER_INTERVAL: int = int(
+        os.getenv("CRAWL_USER_INTERVAL", "180")
+    )  # 用户采集间隔（秒）
+
     # Redis 队列名称
     REDIS_QUEUE_CRAWL: str = "queue:crawl"
     REDIS_QUEUE_PROCESS: str = "queue:process"

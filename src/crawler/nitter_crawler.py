@@ -81,7 +81,9 @@ class NitterCrawler:
 
         self._last_refresh = current_time
 
-    def fetch_user_timeline(self, username: str, max_tweets: int = 20) -> List[Dict]:
+    def fetch_user_timeline(
+        self, username: str, max_tweets: int = 20
+    ) -> Optional[List[Dict]]:
         """
         获取用户时间线推文（按顺序尝试所有可用实例）
 
@@ -91,13 +93,15 @@ class NitterCrawler:
 
         Returns:
             推文列表，每个推文为字典格式
+            如果所有实例都失败，返回 None
+            如果成功但没有推文，返回空列表 []
         """
         # 刷新实例列表
         self._refresh_instances()
 
         if not self._instances_cache:
             logger.error("没有可用的 Nitter 实例")
-            return []
+            return None
 
         tweets = []
 
@@ -146,7 +150,7 @@ class NitterCrawler:
         logger.error(
             f"所有 {len(self._instances_cache)} 个实例都无法获取用户 {username} 的推文"
         )
-        return tweets
+        return None
 
     def _parse_timeline(self, html: str, username: str) -> List[Dict]:
         """

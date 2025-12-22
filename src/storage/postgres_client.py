@@ -141,19 +141,34 @@ class PostgresClient:
             logger.error(f"获取最新推文 ID 失败: {e}")
             return None
 
-    def get_watched_users(self, active_only: bool = True) -> List[Dict]:
+    def get_watched_users(
+        self, active_only: bool = True, min_interval_seconds: int = None
+    ) -> List[Dict]:
         """
         获取关注用户列表
 
         Args:
             active_only: 是否只获取活跃用户
+            min_interval_seconds: 最小采集间隔（秒），只返回距上次采集超过此时间的用户
 
         Returns:
             用户列表
         """
         query = "SELECT * FROM watched_users"
+        conditions = []
+
         if active_only:
-            query += " WHERE is_active = TRUE"
+            conditions.append("is_active = TRUE")
+
+        if min_interval_seconds is not None:
+            # 只获取从未采集过的用户，或距上次采集超过指定时间的用户
+            conditions.append(
+                f"(last_crawled_at IS NULL OR EXTRACT(EPOCH FROM (NOW() - last_crawled_at)) > {min_interval_seconds})"
+            )
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
         query += " ORDER BY priority DESC, username"
 
         return self.execute_query(query)
