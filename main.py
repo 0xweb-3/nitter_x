@@ -165,11 +165,26 @@ def main():
                     logger.info(
                         f"暂无需要采集的用户（所有用户都在 {settings.CRAWL_USER_INTERVAL} 秒采集间隔内）"
                     )
-                else:
-                    logger.info(
-                        f"本轮需要采集 {len(watched_users)} 个用户: "
-                        f"{', '.join([u['username'] for u in watched_users])}"
-                    )
+                    # 没有用户需要采集，立即释放锁
+                    redis_client.release_lock(lock_name, lock_value)
+                    lock_value = None  # 标记锁已释放，避免 finally 重复释放
+                    logger.info(f"✓ 已释放采集锁（无用户需要采集）")
+                    logger.info("=" * 80)
+
+                    # 等待下一轮
+                    if running:
+                        logger.info(f"等待 {settings.CRAWL_INTERVAL} 秒后开始下一轮采集...")
+                        wait_time = settings.CRAWL_INTERVAL
+                        while wait_time > 0 and running:
+                            sleep_chunk = min(1, wait_time)
+                            time.sleep(sleep_chunk)
+                            wait_time -= sleep_chunk
+                    continue
+
+                logger.info(
+                    f"本轮需要采集 {len(watched_users)} 个用户: "
+                    f"{', '.join([u['username'] for u in watched_users])}"
+                )
 
                 total_new = 0
 

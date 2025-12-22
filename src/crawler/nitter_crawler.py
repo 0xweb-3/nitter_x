@@ -377,7 +377,7 @@ if __name__ == "__main__":
 
     # 测试参数
     test_instance = "https://nitter.tiekoetter.com"
-    test_username = "myfxtrader"
+    test_username = "by0x_1993"
     test_url = f"{test_instance}/{test_username}"
 
     print(f"测试实例: {test_instance}")
