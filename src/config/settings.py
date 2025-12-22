@@ -51,6 +51,14 @@ class Settings:
     CRAWL_USER_INTERVAL: int = int(
         os.getenv("CRAWL_USER_INTERVAL", "180")
     )  # 用户采集间隔（秒）
+    CRAWL_LOCK_TIMEOUT_MULTIPLIER: int = int(
+        os.getenv("CRAWL_LOCK_TIMEOUT_MULTIPLIER", "3")
+    )  # 锁超时倍数
+
+    @classmethod
+    def get_crawl_lock_timeout(cls) -> int:
+        """获取采集任务锁超时时间（CRAWL_INTERVAL * CRAWL_LOCK_TIMEOUT_MULTIPLIER）"""
+        return cls.CRAWL_INTERVAL * cls.CRAWL_LOCK_TIMEOUT_MULTIPLIER
 
     # Redis 队列名称
     REDIS_QUEUE_CRAWL: str = "queue:crawl"

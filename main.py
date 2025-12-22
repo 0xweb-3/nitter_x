@@ -105,6 +105,10 @@ def main():
     logger.info("推文采集任务启动（持续运行模式）")
     logger.info(f"采集循环间隔: {settings.CRAWL_INTERVAL} 秒")
     logger.info(f"用户采集间隔: {settings.CRAWL_USER_INTERVAL} 秒")
+    logger.info(
+        f"采集任务锁超时: {settings.get_crawl_lock_timeout()} 秒 "
+        f"({settings.CRAWL_INTERVAL} × {settings.CRAWL_LOCK_TIMEOUT_MULTIPLIER}，防止死锁）"
+    )
     logger.info("按 Ctrl+C 优雅退出")
     logger.info("=" * 80)
 
@@ -119,10 +123,37 @@ def main():
         while running:
             cycle_count += 1
             cycle_start_time = time.time()
+            lock_value = None  # 初始化锁标识
+            lock_name = "crawler:main"
 
             logger.info("=" * 80)
             logger.info(f"开始第 {cycle_count} 轮采集")
             logger.info("=" * 80)
+
+            # 尝试获取采集锁
+            lock_value = redis_client.acquire_lock(
+                lock_name, expire=settings.get_crawl_lock_timeout()
+            )
+
+            if not lock_value:
+                # 未能获取锁，说明上一轮还在执行
+                logger.warning(
+                    f"⚠️  无法获取采集锁，上一轮采集可能还在执行中，跳过本轮采集"
+                )
+                logger.info("=" * 80)
+
+                # 等待下一轮
+                if running:
+                    logger.info(f"等待 {settings.CRAWL_INTERVAL} 秒后重试...")
+                    wait_time = settings.CRAWL_INTERVAL
+                    while wait_time > 0 and running:
+                        sleep_chunk = min(1, wait_time)
+                        time.sleep(sleep_chunk)
+                        wait_time -= sleep_chunk
+                continue
+
+            # 成功获取锁，开始采集
+            logger.info(f"✓ 成功获取采集锁，开始本轮采集")
 
             try:
                 # 获取需要采集的用户列表（只获取距上次采集超过指定时间的用户）
@@ -201,6 +232,12 @@ def main():
                 if running:
                     logger.info(f"等待 {settings.CRAWL_INTERVAL} 秒后重试...")
                     time.sleep(settings.CRAWL_INTERVAL)
+
+            finally:
+                # 无论成功还是异常，都要释放锁
+                if lock_value:
+                    redis_client.release_lock(lock_name, lock_value)
+                    logger.info(f"✓ 已释放采集锁")
 
     except Exception as e:
         logger.error(f"程序异常退出: {e}", exc_info=True)

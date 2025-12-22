@@ -165,6 +165,75 @@ class RedisClient:
             logger.error(f"清空队列失败: {e}")
             return False
 
+    def acquire_lock(
+        self, lock_name: str, expire: int = 300, timeout: int = 0
+    ) -> Optional[str]:
+        """
+        尝试获取分布式锁
+
+        Args:
+            lock_name: 锁名称
+            expire: 锁的过期时间（秒），防止死锁，默认 5 分钟
+            timeout: 等待获取锁的超时时间（秒），0 表示不等待直接返回
+
+        Returns:
+            锁的唯一标识（用于释放锁），如果获取失败返回 None
+        """
+        try:
+            lock_key = f"lock:{lock_name}"
+            lock_value = str(uuid.uuid4())  # 生成唯一标识
+
+            # 尝试获取锁（NX: 仅在键不存在时设置，EX: 设置过期时间）
+            acquired = self.client.set(lock_key, lock_value, nx=True, ex=expire)
+
+            if acquired:
+                logger.debug(f"成功获取锁: {lock_name}")
+                return lock_value
+            else:
+                logger.debug(f"锁已被占用: {lock_name}")
+                return None
+
+        except Exception as e:
+            logger.error(f"获取锁失败: {e}")
+            return None
+
+    def release_lock(self, lock_name: str, lock_value: str) -> bool:
+        """
+        释放分布式锁
+
+        Args:
+            lock_name: 锁名称
+            lock_value: 获取锁时返回的唯一标识
+
+        Returns:
+            是否成功释放
+        """
+        try:
+            lock_key = f"lock:{lock_name}"
+
+            # 使用 Lua 脚本原子性地检查并删除锁
+            # 只有当锁的值匹配时才删除，防止释放别人的锁
+            lua_script = """
+            if redis.call("get", KEYS[1]) == ARGV[1] then
+                return redis.call("del", KEYS[1])
+            else
+                return 0
+            end
+            """
+
+            result = self.client.eval(lua_script, 1, lock_key, lock_value)
+
+            if result:
+                logger.debug(f"成功释放锁: {lock_name}")
+                return True
+            else:
+                logger.warning(f"释放锁失败，锁可能已过期或被其他进程持有: {lock_name}")
+                return False
+
+        except Exception as e:
+            logger.error(f"释放锁异常: {e}")
+            return False
+
     def close(self):
         """关闭连接"""
         if self.client:
