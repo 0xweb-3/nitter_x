@@ -141,6 +141,13 @@ class StatusPageSource(InstanceSource):
     def _is_nitter_url(self, url: str) -> bool:
         """判断是否为 Nitter 相关 URL"""
         url_lower = url.lower()
+
+        # 排除明显不是 Nitter 的网站
+        exclude_keywords = ["github.com", "gitlab.com", "status.d420.de"]
+        if any(keyword in url_lower for keyword in exclude_keywords):
+            return False
+
+        # 检查是否包含 Nitter 相关关键词
         keywords = ["nitter", "twitter", "bird", "xcancel"]
         return any(keyword in url_lower for keyword in keywords)
 
@@ -224,27 +231,78 @@ if __name__ == "__main__":
     print("=" * 80)
     print()
 
-    # 测试 1: 单个来源
-    print("【测试 1】从状态页面获取实例")
+    # 测试 1: 单个来源（详细调试）
+    print("【测试 1】从状态页面获取实例（详细调试模式）")
     print("-" * 80)
+
     source = StatusPageSource("https://status.d420.de/", timeout=15)
+
+    # 先测试直接访问
+    print("\n1. 测试直接访问状态页面...")
+    try:
+        response = source.session.get(source.url, timeout=15, allow_redirects=True)
+        print(f"   状态码: {response.status_code}")
+        print(f"   实际 URL: {response.url}")
+        print(f"   响应编码: {response.encoding}")
+        print(f"   Content-Encoding: {response.headers.get('Content-Encoding', 'None')}")
+
+        # 检查内容是否被正确解码
+        content = response.text
+        print(f"   响应大小: {len(content)} 字符")
+        print(f"   响应字节大小: {len(response.content)} 字节")
+
+        # 检查是否是压缩内容（未解压）
+        is_binary = any(ord(c) < 32 and c not in '\n\r\t' for c in content[:100])
+        print(f"   是否为二进制/压缩内容: {is_binary}")
+
+        if is_binary:
+            print("\n   ⚠️  检测到压缩内容未被正确解码！尝试手动解压...")
+            try:
+                import brotli
+                decompressed = brotli.decompress(response.content)
+                content = decompressed.decode('utf-8')
+                print(f"   ✓ 手动解压成功，解压后大小: {len(content)} 字符")
+            except ImportError:
+                print("   ✗ brotli 库未安装，请运行: pip install brotli")
+                sys.exit(1)
+            except Exception as e:
+                print(f"   ✗ 手动解压失败: {e}")
+
+        # 保存响应内容到文件以供检查
+        debug_file = "/tmp/status_page_debug.html"
+        with open(debug_file, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"   响应内容已保存到: {debug_file}")
+
+        # 显示前 500 个字符
+        print(f"\n   响应内容预览（前 500 字符）:")
+        print("   " + "-" * 76)
+        preview = content[:500].replace("\n", "\n   ")
+        print(f"   {preview}")
+        print("   " + "-" * 76)
+
+        # 检查是否包含预期的 HTML 标签
+        print(f"\n   HTML 标签检查:")
+        print(f"   - 包含 <html>: {'是' if '<html' in content.lower() else '否'}")
+        print(f"   - 包含 <body>: {'是' if '<body' in content.lower() else '否'}")
+        print(f"   - 包含 <a: {'是' if '<a' in content.lower() else '否'}")
+        print(f"   - 包含 nitter: {'是' if 'nitter' in content.lower() else '否'}")
+
+    except Exception as e:
+        print(f"   ✗ 直接访问失败: {e}")
+        import traceback
+        traceback.print_exc()
+
+    print("\n2. 使用 fetch_instances 方法获取实例...")
     instances = source.fetch_instances()
     print(f"\n✓ 获取到 {len(instances)} 个实例:\n")
     for i, inst in enumerate(instances, 1):
         print(f"  {i}. {inst}")
     print()
 
-    # # 测试 2: 使用 InstanceSourceManager
-    # print("【测试 2】使用 InstanceSourceManager 整合所有来源")
-    # print("-" * 80)
-    # manager = get_default_sources()
-    # all_instances = manager.fetch_all_instances()
-    # print(f"\n✓ 总计获取到 {len(all_instances)} 个不重复实例:\n")
-    # for i, inst in enumerate(sorted(all_instances), 1):
-    #     print(f"  {i}. {inst}")
-    # print()
-    #
-    # print("=" * 80)
-    # print("测试完成")
-    # print("=" * 80)
+    print("=" * 80)
+    print("测试完成")
+    print("=" * 80)
+
+
 
