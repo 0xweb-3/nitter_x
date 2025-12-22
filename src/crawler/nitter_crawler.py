@@ -304,28 +304,198 @@ class NitterCrawler:
             datetime 对象
         """
         try:
-            # 尝试从 title 属性获取完整时间
+            # 方法1: 从 a 标签的 title 属性获取完整时间
+            link = time_element.find("a")
+            if link:
+                title = link.get("title", "")
+                if title:
+                    # 格式: "Dec 22, 2025 · 5:47 AM UTC"
+                    # 分割并解析
+                    parts = title.split("·")
+                    if len(parts) >= 2:
+                        date_part = parts[0].strip()  # "Dec 22, 2025"
+                        time_part = parts[1].strip()  # "5:47 AM UTC"
+
+                        # 组合完整时间字符串
+                        datetime_str = f"{date_part} {time_part}"
+
+                        # 尝试多种格式解析
+                        formats = [
+                            "%b %d, %Y %I:%M %p UTC",  # Dec 22, 2025 5:47 AM UTC
+                            "%b %d, %Y %H:%M UTC",      # Dec 22, 2025 17:47 UTC
+                        ]
+
+                        for fmt in formats:
+                            try:
+                                return datetime.strptime(datetime_str, fmt)
+                            except ValueError:
+                                continue
+
+            # 方法2: 从 span 的 title 属性直接获取
             title = time_element.get("title", "")
-            if title:
-                # 格式: "Dec 22, 2025 · 9:00 AM UTC"
-                # 这里需要根据实际格式调整
-                return datetime.strptime(title.split("·")[0].strip(), "%b %d, %Y")
-        except Exception:
-            pass
+            if title and "·" in title:
+                parts = title.split("·")
+                date_part = parts[0].strip()
+                time_part = parts[1].strip()
+                datetime_str = f"{date_part} {time_part}"
+
+                formats = [
+                    "%b %d, %Y %I:%M %p UTC",
+                    "%b %d, %Y %H:%M UTC",
+                ]
+
+                for fmt in formats:
+                    try:
+                        return datetime.strptime(datetime_str, fmt)
+                    except ValueError:
+                        continue
+
+        except Exception as e:
+            logger.debug(f"解析时间戳失败: {e}")
 
         # 默认返回当前时间
+        logger.warning("无法解析时间戳，使用当前时间")
         return datetime.now()
 
 
 if __name__ == "__main__":
-    # 测试代码
-    logging.basicConfig(level=logging.INFO)
-    crawler = NitterCrawler()
-    tweets = crawler.fetch_user_timeline("myfxtrader", max_tweets=5)
+    """调试入口"""
+    import sys
+    from bs4 import BeautifulSoup
 
-    for tweet in tweets:
-        print(f"Tweet ID: {tweet['tweet_id']}")
-        print(f"Author: {tweet['author']}")
-        print(f"Content: {tweet['content'][:100]}...")
-        print(f"Published: {tweet['published_at']}")
-        print("-" * 80)
+    # 设置日志级别
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="[%(asctime)s] [%(levelname)s] [%(name)s] - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    print("=" * 80)
+    print("Nitter 爬虫调试测试")
+    print("=" * 80)
+    print()
+
+    # 测试参数
+    test_instance = "https://nitter.tiekoetter.com"
+    test_username = "myfxtrader"
+    test_url = f"{test_instance}/{test_username}"
+
+    print(f"测试实例: {test_instance}")
+    print(f"测试用户: {test_username}")
+    print(f"测试 URL: {test_url}")
+    print()
+
+    # 初始化爬虫
+    crawler = NitterCrawler(use_redis_instances=False, max_instances=1)
+
+    print("【测试 1】直接访问用户页面")
+    print("-" * 80)
+
+    try:
+        # 直接访问测试
+        print("\n1. 发送 HTTP 请求...")
+        response = crawler._request_with_retry(test_url)
+
+        if not response:
+            print("   ✗ 请求失败")
+            sys.exit(1)
+
+        print(f"   ✓ 请求成功")
+        print(f"   状态码: {response.status_code}")
+        print(f"   实际 URL: {response.url}")
+        print(f"   响应编码: {response.encoding}")
+        print(f"   Content-Encoding: {response.headers.get('Content-Encoding', 'None')}")
+
+        content = response.text
+        print(f"   响应大小: {len(content)} 字符")
+        print(f"   响应字节大小: {len(response.content)} 字节")
+
+        # 保存响应内容
+        debug_file = "/tmp/nitter_user_page_debug.html"
+        with open(debug_file, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"   响应内容已保存到: {debug_file}")
+
+        # 显示内容预览
+        print(f"\n2. 响应内容预览（前 500 字符）:")
+        print("   " + "-" * 76)
+        preview = content[:500].replace("\n", "\n   ")
+        print(f"   {preview}")
+        print("   " + "-" * 76)
+
+        # HTML 结构检查
+        print(f"\n3. HTML 结构检查:")
+        soup = BeautifulSoup(content, "html.parser")
+
+        timeline_items = soup.find_all("div", class_="timeline-item")
+        print(f"   - 找到 timeline-item: {len(timeline_items)} 个")
+
+        if timeline_items:
+            first_item = timeline_items[0]
+            print(f"\n   第一个 timeline-item 的结构:")
+            print(f"   - 包含 tweet-link: {'是' if first_item.find('a', class_='tweet-link') else '否'}")
+            print(f"   - 包含 tweet-content: {'是' if first_item.find('div', class_='tweet-content') else '否'}")
+            print(f"   - 包含 tweet-date: {'是' if first_item.find('span', class_='tweet-date') else '否'}")
+            print(f"   - 包含 username: {'是' if first_item.find('a', class_='username') else '否'}")
+
+            # 显示第一个 item 的 HTML
+            print(f"\n   第一个 timeline-item 的 HTML（前 300 字符）:")
+            print("   " + "-" * 76)
+            item_html = str(first_item)[:300].replace("\n", "\n   ")
+            print(f"   {item_html}")
+            print("   " + "-" * 76)
+
+        # 检查其他关键元素
+        print(f"\n4. 页面元素检查:")
+        print(f"   - 包含 <html>: {'是' if '<html' in content.lower() else '否'}")
+        print(f"   - 包含 <body>: {'是' if '<body' in content.lower() else '否'}")
+        print(f"   - 包含 'timeline': {'是' if 'timeline' in content.lower() else '否'}")
+        print(f"   - 包含 'tweet': {'是' if 'tweet' in content.lower() else '否'}")
+        print(f"   - 包含用户名 '{test_username}': {'是' if test_username.lower() in content.lower() else '否'}")
+
+    except Exception as e:
+        print(f"   ✗ 测试失败: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+    print("\n" + "=" * 80)
+    print("【测试 2】使用 fetch_user_timeline 方法获取推文")
+    print("-" * 80)
+
+    try:
+        # 临时设置实例缓存为测试实例
+        crawler._instances_cache = [test_instance]
+
+        tweets = crawler.fetch_user_timeline(test_username, max_tweets=5)
+
+        if tweets is None:
+            print("\n✗ 获取失败：所有实例都失败")
+            sys.exit(1)
+        elif not tweets:
+            print("\n✓ 获取成功，但没有找到推文")
+            print("\n可能原因：")
+            print("  1. HTML 结构与预期不符（选择器不匹配）")
+            print("  2. 页面使用 JavaScript 动态加载内容")
+            print("  3. 用户没有推文或推文被隐藏")
+            print(f"\n请检查保存的 HTML 文件: {debug_file}")
+        else:
+            print(f"\n✓ 成功获取到 {len(tweets)} 条推文:\n")
+            for i, tweet in enumerate(tweets, 1):
+                print(f"【推文 {i}】")
+                print(f"  Tweet ID: {tweet['tweet_id']}")
+                print(f"  Author: {tweet['author']}")
+                print(f"  Content: {tweet['content'][:150]}{'...' if len(tweet['content']) > 150 else ''}")
+                print(f"  Published: {tweet['published_at']}")
+                print(f"  URL: {tweet['tweet_url']}")
+                print()
+
+    except Exception as e:
+        print(f"\n✗ 获取推文时出错: {e}")
+        import traceback
+        traceback.print_exc()
+
+    print("=" * 80)
+    print("测试完成")
+    print("=" * 80)
+
