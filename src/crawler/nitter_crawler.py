@@ -259,6 +259,9 @@ class NitterCrawler:
         Returns:
             推文数据字典
         """
+        # 检查是否是置顶推文
+        is_pinned = item.find("div", class_="pinned") is not None
+
         # 提取推文链接和 ID
         link = item.find("a", class_="tweet-link")
         if not link:
@@ -291,6 +294,7 @@ class NitterCrawler:
             "content": content,
             "published_at": published_at,
             "tweet_url": tweet_url,
+            "is_pinned": is_pinned,  # 标记是否为置顶推文
         }
 
     def _parse_timestamp(self, time_element) -> datetime:
@@ -430,13 +434,21 @@ if __name__ == "__main__":
         timeline_items = soup.find_all("div", class_="timeline-item")
         print(f"   - 找到 timeline-item: {len(timeline_items)} 个")
 
+        # 检查置顶推文
+        pinned_items = [item for item in timeline_items if item.find("div", class_="pinned")]
+        if pinned_items:
+            print(f"   - 检测到 {len(pinned_items)} 条置顶推文 📌")
+
         if timeline_items:
             first_item = timeline_items[0]
-            print(f"\n   第一个 timeline-item 的结构:")
+            is_pinned = first_item.find("div", class_="pinned") is not None
+            pinned_text = " (置顶推文 📌)" if is_pinned else ""
+            print(f"\n   第一个 timeline-item 的结构{pinned_text}:")
             print(f"   - 包含 tweet-link: {'是' if first_item.find('a', class_='tweet-link') else '否'}")
             print(f"   - 包含 tweet-content: {'是' if first_item.find('div', class_='tweet-content') else '否'}")
             print(f"   - 包含 tweet-date: {'是' if first_item.find('span', class_='tweet-date') else '否'}")
             print(f"   - 包含 username: {'是' if first_item.find('a', class_='username') else '否'}")
+            print(f"   - 是否置顶: {'是' if is_pinned else '否'}")
 
             # 显示第一个 item 的 HTML
             print(f"\n   第一个 timeline-item 的 HTML（前 300 字符）:")
@@ -482,7 +494,8 @@ if __name__ == "__main__":
         else:
             print(f"\n✓ 成功获取到 {len(tweets)} 条推文:\n")
             for i, tweet in enumerate(tweets, 1):
-                print(f"【推文 {i}】")
+                pinned_mark = " [📌 置顶]" if tweet.get("is_pinned", False) else ""
+                print(f"【推文 {i}】{pinned_mark}")
                 print(f"  Tweet ID: {tweet['tweet_id']}")
                 print(f"  Author: {tweet['author']}")
                 print(f"  Content: {tweet['content'][:150]}{'...' if len(tweet['content']) > 150 else ''}")

@@ -66,9 +66,23 @@ def crawl_user(username: str, crawler: NitterCrawler, pg_client, redis_client) -
         return 0
 
     new_count = 0
+    pinned_count = 0  # 统计跳过的置顶推文数量
 
     for tweet in tweets:
         tweet_id = tweet["tweet_id"]
+        is_pinned = tweet.get("is_pinned", False)
+
+        # 如果是置顶推文，记录但跳过比对
+        if is_pinned:
+            pinned_count += 1
+            logger.debug(f"跳过置顶推文: {tweet_id}")
+            # 置顶推文也要插入数据库（如果还没有）
+            if not redis_client.is_duplicate(tweet_id):
+                result = pg_client.insert_tweet(tweet)
+                if result:
+                    redis_client.push_to_queue(settings.REDIS_QUEUE_PROCESS, tweet_id)
+                    logger.info(f"新增置顶推文: {tweet_id}")
+            continue  # 跳过，不用于比对
 
         # 如果遇到已存在的推文，停止采集（增量采集）
         if tweet_id == latest_tweet_id:
@@ -89,7 +103,10 @@ def crawl_user(username: str, crawler: NitterCrawler, pg_client, redis_client) -
             new_count += 1
             logger.info(f"新增推文: {tweet_id}")
 
-    logger.info(f"用户 {username} 采集完成，新增 {new_count} 条推文")
+    if pinned_count > 0:
+        logger.info(f"用户 {username} 采集完成，跳过 {pinned_count} 条置顶推文，新增 {new_count} 条普通推文")
+    else:
+        logger.info(f"用户 {username} 采集完成，新增 {new_count} 条推文")
     return new_count
 
 
