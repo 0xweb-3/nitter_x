@@ -55,12 +55,8 @@ page_size = st.sidebar.selectbox(
     index=1,
 )
 
-# 自动刷新
-auto_refresh = st.sidebar.checkbox("自动刷新（60秒）", value=False)
-if auto_refresh:
-    import time
-    time.sleep(60)
-    st.rerun()
+# 自动刷新（checkbox）
+auto_refresh = st.sidebar.checkbox("自动刷新（20秒）", value=False)
 
 # 初始化分页状态
 if "processed_page" not in st.session_state:
@@ -193,16 +189,7 @@ if selected_grades:
 
                 # 处理结果
                 if grade in ['P0', 'P1', 'P2']:
-                    # 如果有翻译内容，优先展示翻译
-                    if tweet.get('translated_content'):
-                        st.markdown(f"**🌐 中文翻译**: {tweet['translated_content']}")
-                        # 原文放在可折叠区域
-                        with st.expander("📄 查看原文", expanded=False):
-                            st.write(tweet['content'])
-                    else:
-                        # 没有翻译，直接展示内容
-                        st.markdown(f"**📄 内容**: {tweet['content']}")
-
+                    # 主要展示：摘要和关键词
                     # 摘要
                     if tweet.get('summary_cn'):
                         st.markdown(f"**📝 摘要**: {tweet['summary_cn']}")
@@ -217,6 +204,27 @@ if selected_grades:
                         except:
                             pass
 
+                    # 次要展示：原文和翻译（折叠）
+                    translated = tweet.get('translated_content')
+                    original = tweet.get('content', '')
+
+                    # 检查是否有有效的翻译内容
+                    has_valid_translation = (
+                        translated and
+                        translated.strip() != '' and
+                        translated != original and
+                        len(translated) > 10
+                    )
+
+                    # 原文展示（始终折叠）
+                    with st.expander("📄 查看原文", expanded=False):
+                        st.write(original)
+
+                    # 如果有翻译，也折叠展示
+                    if has_valid_translation:
+                        with st.expander("🌐 查看中文翻译", expanded=False):
+                            st.write(translated)
+
                     # 媒体资源
                     if tweet.get('has_media') and tweet.get('media_urls'):
                         try:
@@ -224,7 +232,7 @@ if selected_grades:
                             if media_urls:
                                 st.markdown("**📷 媒体资源:**")
                                 for i, media_url in enumerate(media_urls):
-                                    with st.expander(f"🖼️ 媒体 {i+1}", expanded=(i==0)):
+                                    with st.expander(f"🖼️ 媒体 {i+1}", expanded=False):
                                         if media_url.endswith(('.mp4', '.webm', '.mov')):
                                             st.video(media_url)
                                         else:

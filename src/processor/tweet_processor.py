@@ -119,9 +119,15 @@ class TweetProcessor:
                 if len(result["summary_cn"]) > 30:
                     result["summary_cn"] = result["summary_cn"][:30]
 
-                # 如果原文是中文，确保 translated_content 为 None
+                # 如果原文是中文，或翻译内容与原文相同，设置 translated_content 为 None
                 if result.get("is_chinese"):
                     result["translated_content"] = None
+                elif result.get("translated_content"):
+                    # 额外检查：如果翻译内容与原文几乎相同，也设为 None
+                    translated = result["translated_content"].strip()
+                    original = content.strip()
+                    if translated == original or len(translated) < 10:
+                        result["translated_content"] = None
 
                 logger.debug(f"高等级推文处理成功: 摘要={result['summary_cn']}")
                 return result

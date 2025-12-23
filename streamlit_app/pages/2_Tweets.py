@@ -231,7 +231,7 @@ try:
                                 # 图片展示（支持多图）
                                 for i, media_url in enumerate(media_urls):
                                     # 使用expander让用户可以选择是否展示
-                                    with st.expander(f"🖼️ 媒体 {i+1}", expanded=(i==0)):
+                                    with st.expander(f"🖼️ 媒体 {i+1}", expanded=False):
                                         if media_url.endswith(('.mp4', '.webm', '.mov')):
                                             # 视频
                                             st.video(media_url)
