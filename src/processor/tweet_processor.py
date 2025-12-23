@@ -172,7 +172,7 @@ class TweetProcessor:
             "processing_time_ms": 0,
         }
 
-        if grade in ["A", "B", "C"]:
+        if grade in ["P0", "P1", "P2"]:
             detailed_result = self.process_high_grade_tweet(content, grade)
             if detailed_result:
                 result["summary_cn"] = detailed_result.get("summary_cn")

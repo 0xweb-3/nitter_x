@@ -88,6 +88,8 @@ def load_processed_data(grades, limit, offset):
             t.author,
             t.content,
             t.tweet_url,
+            t.media_urls,
+            t.has_media,
             p.grade,
             p.summary_cn,
             p.keywords,
@@ -214,6 +216,21 @@ if selected_grades:
                                 st.markdown(f"**🏷️ 关键词**: {keyword_tags}")
                         except:
                             pass
+
+                    # 媒体资源
+                    if tweet.get('has_media') and tweet.get('media_urls'):
+                        try:
+                            media_urls = json.loads(tweet['media_urls']) if isinstance(tweet['media_urls'], str) else tweet['media_urls']
+                            if media_urls:
+                                st.markdown("**📷 媒体资源:**")
+                                for i, media_url in enumerate(media_urls):
+                                    with st.expander(f"🖼️ 媒体 {i+1}", expanded=(i==0)):
+                                        if media_url.endswith(('.mp4', '.webm', '.mov')):
+                                            st.video(media_url)
+                                        else:
+                                            st.image(media_url, use_container_width=True)
+                        except Exception as e:
+                            st.caption(f"⚠️ 媒体加载失败: {str(e)}")
 
                 else:
                     # P3/P4/P5/P6 级推文，展示原文

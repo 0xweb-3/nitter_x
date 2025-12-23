@@ -479,6 +479,8 @@ class PostgresClient:
             t.author,
             t.content,
             t.tweet_url,
+            t.media_urls,
+            t.has_media,
             p.grade,
             p.summary_cn,
             p.keywords,
