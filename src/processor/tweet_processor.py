@@ -35,7 +35,7 @@ class TweetProcessor:
             content: 推文内容
 
         Returns:
-            分级结果 (A/B/C/D/E/F)
+            分级结果 (P0/P1/P2/P3/P4/P5/P6)
         """
         try:
             # 使用统一的提示词管理
@@ -47,30 +47,33 @@ class TweetProcessor:
                 temperature=0.1,  # 降低温度，使结果更确定
             )
 
-            # 提取分级结果（取第一个大写字母）
+            # 提取分级结果（P0-P6）
             grade = None
-            for char in response.strip().upper():
-                if char in ["A", "B", "C", "D", "E", "F"]:
-                    grade = char
+            response_upper = response.strip().upper()
+
+            # 尝试匹配 P0-P6
+            for level in ["P0", "P1", "P2", "P3", "P4", "P5", "P6"]:
+                if level in response_upper:
+                    grade = level
                     break
 
             if not grade:
-                logger.warning(f"LLM 返回的分级结果无效: {response}，默认设为 F")
-                grade = "F"
+                logger.warning(f"LLM 返回的分级结果无效: {response}，默认设为 P6")
+                grade = "P6"
 
             logger.debug(f"推文分级成功: {grade}")
             return grade
 
         except Exception as e:
             logger.error(f"推文分级失败: {e}")
-            # 分级失败时默认返回 F
-            return "F"
+            # 分级失败时默认返回 P6
+            return "P6"
 
     def process_high_grade_tweet(
         self, content: str, grade: str
     ) -> Optional[Dict[str, Any]]:
         """
-        处理高等级推文（A/B/C级），进行翻译、摘要、关键词提取
+        处理高等级推文（P0/P1/P2级），进行翻译、摘要、关键词提取
 
         Args:
             content: 推文内容
@@ -82,7 +85,7 @@ class TweetProcessor:
             - summary_cn: 中文摘要（30字以内）
             - keywords: 关键词列表
         """
-        if grade not in ["A", "B", "C"]:
+        if grade not in ["P0", "P1", "P2"]:
             logger.debug(f"推文分级为 {grade}，跳过详细处理")
             return None
 

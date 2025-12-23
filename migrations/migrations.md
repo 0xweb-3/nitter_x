@@ -44,7 +44,7 @@
 - **tweets 表**：添加 `processing_status` 字段（枚举类型：pending/processing/completed/failed/skipped）
 - **processed_tweets 表**：新建表存储 LLM 处理结果
   - `tweet_id`: 关联原推文（外键）
-  - `grade`: 分级结果（A/B/C/D/E/F）
+  - `grade`: 分级结果（P0/P1/P2/P3/P4/P5/P6，价格影响导向）
   - `summary_cn`: 中文摘要（≤30字）
   - `keywords`: 关键词数组（JSONB）
   - `embedding`: 文本向量（JSONB，用于相似度检索）
@@ -60,13 +60,26 @@
 
 **回滚：** `python migrations/add_processed_tweets.py --rollback`
 
-**分级标准：**
-- A：和 crypto 强相关
-- B：和 crypto 相关
-- C：对 crypto 有影响
-- D：对 crypto 间接影响
-- E：某些投资讨论
-- F：没有关系可舍弃
+**分级标准（价格影响导向）：**
+- P0：直接、可验证、已发生的价格驱动事件（最高优先级）
+- P1：高概率触发价格的"强信号事件"
+- P2：结构性、长期价格影响因素（慢变量）
+- P3：宏观 & 政策级，对 crypto 整体估值有影响
+- P4：行业、叙事、情绪层面的信息
+- P5：信息噪音（相关但基本不影响价格）
+- P6：可直接舍弃（无价格影响）
+
+### update_grade_to_p_levels.py
+更新分级体系从 A-F 到 P0-P6：
+- 将 `processed_tweets.grade` 字段从 CHAR(1) 改为 VARCHAR(2)
+- 更新检查约束从 A-F 到 P0-P6
+- 添加字段注释说明新分级体系
+
+**执行：** `python migrations/update_grade_to_p_levels.py`
+
+**回滚：** `python migrations/update_grade_to_p_levels.py --rollback`
+
+**注意：** 已有数据需要重新处理或手动转换分级值
 
 ## 使用方式
 

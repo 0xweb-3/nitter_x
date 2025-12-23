@@ -65,7 +65,7 @@ def process_single_tweet(tweet: Dict, processor, pg_client) -> bool:
             return False
 
         # 4. 更新推文状态
-        final_status = "completed" if result["grade"] in ["A", "B", "C", "D", "E"] else "skipped"
+        final_status = "completed" if result["grade"] in ["P0", "P1", "P2", "P3", "P4", "P5"] else "skipped"
         pg_client.update_tweet_processing_status(tweet_id, final_status)
 
         logger.info(
