@@ -196,23 +196,50 @@ try:
                     col_header1, col_header2 = st.columns([10, 2])
 
                     with col_header1:
+                        # 显示用户名，展示名用括号括起来
+                        author_display = f"**@{tweet['author']}**"
+                        if tweet.get('display_name'):
+                            author_display += f" ({tweet['display_name']})"
+
                         st.markdown(
-                            f"**@{tweet['author']}** · "
+                            f"{author_display} · "
                             f"<span style='color: #888;'>{format_relative_time(tweet['published_at'])}</span>",
                             unsafe_allow_html=True,
                         )
 
                     with col_header2:
-                        # 查看原文链接
+                        # 查看原文链接（x.com）
                         if tweet.get("tweet_url"):
                             st.markdown(
-                                f'<a href="https://twitter.com{tweet["tweet_url"]}" target="_blank" '
+                                f'<a href="{tweet["tweet_url"]}" target="_blank" '
                                 f'style="text-decoration: none;">🔗 原文</a>',
                                 unsafe_allow_html=True,
                             )
 
                     # 推文内容
                     st.markdown(f"{tweet['content']}")
+
+                    # 显示媒体（图片/视频）
+                    if tweet.get('has_media') and tweet.get('media_urls'):
+                        try:
+                            import json
+                            media_urls = json.loads(tweet['media_urls']) if isinstance(tweet['media_urls'], str) else tweet['media_urls']
+
+                            if media_urls:
+                                st.markdown("**📷 媒体资源:**")
+
+                                # 图片展示（支持多图）
+                                for i, media_url in enumerate(media_urls):
+                                    # 使用expander让用户可以选择是否展示
+                                    with st.expander(f"🖼️ 媒体 {i+1}", expanded=(i==0)):
+                                        if media_url.endswith(('.mp4', '.webm', '.mov')):
+                                            # 视频
+                                            st.video(media_url)
+                                        else:
+                                            # 图片
+                                            st.image(media_url, use_container_width=True)
+                        except Exception as e:
+                            st.caption(f"⚠️ 媒体加载失败: {str(e)}")
 
                     # 元信息
                     st.caption(

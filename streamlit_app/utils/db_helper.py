@@ -149,34 +149,38 @@ class DatabaseHelper:
         params = []
 
         if username:
-            conditions.append("author = %s")
+            conditions.append("t.author = %s")
             params.append(username)
 
         if start_date:
-            conditions.append("published_at >= %s")
+            conditions.append("t.published_at >= %s")
             params.append(start_date)
 
         if end_date:
-            conditions.append("published_at <= %s")
+            conditions.append("t.published_at <= %s")
             params.append(end_date)
 
         if keyword:
-            conditions.append("content ILIKE %s")
+            conditions.append("t.content ILIKE %s")
             params.append(f"%{keyword}%")
 
         where_clause = " AND ".join(conditions) if conditions else "TRUE"
 
         query = f"""
             SELECT
-                tweet_id,
-                author,
-                content,
-                published_at,
-                tweet_url,
-                created_at
-            FROM tweets
+                t.tweet_id,
+                t.author,
+                COALESCE(u.display_name, '') as display_name,
+                t.content,
+                t.published_at,
+                t.tweet_url,
+                t.created_at,
+                t.media_urls,
+                t.has_media
+            FROM tweets t
+            LEFT JOIN watched_users u ON t.author = u.username
             WHERE {where_clause}
-            ORDER BY published_at DESC
+            ORDER BY t.published_at DESC
             LIMIT %s OFFSET %s
         """
         params.extend([limit, offset])

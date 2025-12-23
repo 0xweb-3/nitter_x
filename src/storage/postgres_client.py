@@ -91,14 +91,40 @@ class PostgresClient:
         插入推文数据
 
         Args:
-            tweet_data: 推文数据字典
+            tweet_data: 推文数据字典，支持字段：
+                - tweet_id: 推文ID（必填）
+                - author: 作者用户名（必填）
+                - author_id: 作者ID（可选）
+                - content: 推文内容（必填）
+                - published_at: 发布时间（必填）
+                - tweet_url: 推文URL（可选）
+                - media_urls: 媒体URL列表（可选）
+                - has_media: 是否包含媒体（可选，自动根据media_urls计算）
 
         Returns:
             插入的记录 ID，如果失败返回 None
         """
+        # 自动设置 has_media 标志
+        if "media_urls" in tweet_data and tweet_data["media_urls"]:
+            tweet_data["has_media"] = True
+        else:
+            tweet_data.setdefault("has_media", False)
+
+        # 确保 media_urls 是 JSON 格式
+        if "media_urls" in tweet_data:
+            import json
+            if isinstance(tweet_data["media_urls"], list):
+                tweet_data["media_urls"] = json.dumps(tweet_data["media_urls"])
+
         query = """
-        INSERT INTO tweets (tweet_id, author, author_id, content, published_at)
-        VALUES (%(tweet_id)s, %(author)s, %(author_id)s, %(content)s, %(published_at)s)
+        INSERT INTO tweets (
+            tweet_id, author, author_id, content, published_at,
+            tweet_url, media_urls, has_media
+        )
+        VALUES (
+            %(tweet_id)s, %(author)s, %(author_id)s, %(content)s, %(published_at)s,
+            %(tweet_url)s, %(media_urls)s::jsonb, %(has_media)s
+        )
         ON CONFLICT (tweet_id) DO NOTHING
         RETURNING id
         """
@@ -108,7 +134,8 @@ class PostgresClient:
                     cur.execute(query, tweet_data)
                     result = cur.fetchone()
                     if result:
-                        logger.info(f"成功插入推文: {tweet_data['tweet_id']}")
+                        media_info = f"（含 {len(tweet_data.get('media_urls', '[]'))} 个媒体）" if tweet_data.get('has_media') else ""
+                        logger.info(f"成功插入推文: {tweet_data['tweet_id']} {media_info}")
                         return result[0]
                     else:
                         logger.debug(f"推文已存在: {tweet_data['tweet_id']}")

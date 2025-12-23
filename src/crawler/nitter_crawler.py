@@ -196,6 +196,9 @@ class NitterCrawler:
                         time.sleep(self.delay)
                     continue
 
+                # 保存当前实例URL（用于补全媒体相对路径）
+                self.current_instance = instance
+
                 # 解析 HTML
                 tweets = self._parse_timeline(response.text, username)
 
@@ -287,15 +290,87 @@ class NitterCrawler:
         author_div = item.find("a", class_="username")
         author = author_div.get_text(strip=True) if author_div else username
 
+        # 提取媒体信息（图片、视频、GIF）
+        media_urls = self._extract_media_urls(item)
+
+        # 构建 x.com 原始链接（用于溯源）
+        twitter_url = f"https://x.com/{author.lstrip('@')}/status/{tweet_id}"
+
         return {
             "tweet_id": tweet_id,
             "author": author.lstrip("@"),
             "author_id": "",  # Nitter 通常不提供 author_id
             "content": content,
             "published_at": published_at,
-            "tweet_url": tweet_url,
+            "tweet_url": twitter_url,  # 保存 x.com 原始链接
+            "media_urls": media_urls,  # 媒体URL列表
             "is_pinned": is_pinned,  # 标记是否为置顶推文
         }
+
+    def _extract_media_urls(self, item) -> List[str]:
+        """
+        从推文元素中提取媒体URL
+
+        Args:
+            item: BeautifulSoup 推文元素
+
+        Returns:
+            媒体URL列表
+        """
+        media_urls = []
+
+        try:
+            # 查找媒体附件容器
+            attachments = item.find("div", class_="attachments")
+            if not attachments:
+                return media_urls
+
+            # 提取图片
+            images = attachments.find_all("a", class_="still-image")
+            for img_link in images:
+                # 获取高清图片链接
+                img = img_link.find("img")
+                if img:
+                    # 尝试获取原图链接
+                    src = img.get("src", "")
+                    if src:
+                        # Nitter 图片通常是相对路径，需要补全
+                        if src.startswith("/"):
+                            # 使用当前实例的域名
+                            if hasattr(self, 'current_instance'):
+                                src = f"{self.current_instance}{src}"
+                        media_urls.append(src)
+
+            # 提取视频/GIF
+            videos = attachments.find_all("video")
+            for video in videos:
+                source = video.find("source")
+                if source:
+                    src = source.get("src", "")
+                    if src:
+                        if src.startswith("/"):
+                            if hasattr(self, 'current_instance'):
+                                src = f"{self.current_instance}{src}"
+                        media_urls.append(src)
+
+            # 提取 GIF（有时在单独的容器中）
+            gif_containers = attachments.find_all("div", class_="gif")
+            for gif_div in gif_containers:
+                video = gif_div.find("video")
+                if video:
+                    source = video.find("source")
+                    if source:
+                        src = source.get("src", "")
+                        if src:
+                            if src.startswith("/"):
+                                if hasattr(self, 'current_instance'):
+                                    src = f"{self.current_instance}{src}"
+                            media_urls.append(src)
+
+        except Exception as e:
+            logger.debug(f"提取媒体URL失败: {e}")
+
+        return media_urls
 
     def _parse_timestamp(self, time_element) -> datetime:
         """
