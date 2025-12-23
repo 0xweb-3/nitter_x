@@ -216,7 +216,7 @@ try:
 
     with col_a:
         if st.button("➕ 添加用户", use_container_width=True, type="primary"):
-            st.switch_page("pages/1_Users.py")
+            st.switch_page("pages/3_Users.py")
 
     with col_b:
         if st.button("📝 查看推文", use_container_width=True):
@@ -224,7 +224,7 @@ try:
 
     with col_c:
         if st.button("⚙️ 系统监控", use_container_width=True):
-            st.switch_page("pages/3_Monitor.py")
+            st.switch_page("pages/4_Monitor.py")
 
     # 系统信息
     st.markdown("---")
