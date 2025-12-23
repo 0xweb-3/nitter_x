@@ -9,10 +9,22 @@
 ### nitter_crawler.py
 Nitter 爬虫主类，功能：
 - 从 Nitter 实例获取用户推文
-- 解析 HTML 提取推文数据
+- 解析 HTML 提取推文数据（文本、时间、媒体）
+- **媒体提取**：
+  - 图片（PNG/JPG/WEBP）
+  - 视频（MP4/WEBM/MOV）
+  - GIF（作为视频处理）
+  - 自动补全相对路径为完整URL
+- 生成 x.com 原始链接（便于溯源）
 - 支持增量采集
 - 自动从 Redis 获取可用实例
 - 加权随机选择实例（更快的实例优先）
+
+**主要方法**：
+- `fetch_user_timeline()`: 获取用户推文
+- `_extract_tweet_data()`: 提取推文数据
+- `_extract_media_urls()`: 提取媒体URL列表
+- `_parse_timestamp()`: 解析时间戳（自动转换为UTC）
 
 ### constants.py
 常量定义，包括：

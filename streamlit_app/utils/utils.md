@@ -18,7 +18,20 @@
 ```python
 # 推文相关
 def get_tweets(limit, offset, username=None, start_date=None, end_date=None, keyword=None):
-    """获取推文列表（支持分页和筛选）"""
+    """
+    获取推文列表（支持分页和筛选）
+
+    返回字段：
+    - tweet_id: 推文ID
+    - author: 用户名
+    - display_name: 展示名称（关联 watched_users 表）
+    - content: 推文内容
+    - published_at: 发布时间（UTC）
+    - tweet_url: x.com 原始链接
+    - created_at: 采集时间（UTC）
+    - media_urls: 媒体URL列表（JSONB）
+    - has_media: 是否包含媒体
+    """
     pass
 
 def get_tweet_count(username=None, start_date=None, end_date=None, keyword=None):

@@ -56,9 +56,14 @@ tweet_data = {
     "tweet_id": "123456",
     "author": "elonmusk",
     "content": "Tweet content",
-    "published_at": datetime.now(timezone.utc)
+    "published_at": datetime.now(timezone.utc),
+    "tweet_url": "https://x.com/elonmusk/status/123456",
+    "media_urls": [
+        "https://pbs.twimg.com/media/image1.jpg",
+        "https://pbs.twimg.com/media/image2.jpg"
+    ]
 }
-pg.insert_tweet(tweet_data)
+pg.insert_tweet(tweet_data)  # 自动设置 has_media=True
 
 # 查询用户
 users = pg.get_watched_users()
@@ -108,6 +113,9 @@ instances = redis.get_available_instances()
 - `author`: 作者用户名
 - `content`: 推文内容
 - `published_at`: 发布时间（UTC）
+- `tweet_url`: 推文原始链接（x.com）
+- `media_urls`: 媒体URL列表（JSONB，存储图片/视频/GIF链接）
+- `has_media`: 是否包含媒体（BOOLEAN，便于筛选）
 - `created_at`: 创建时间（UTC）
 - `updated_at`: 更新时间（UTC）
 
@@ -115,10 +123,13 @@ instances = redis.get_available_instances()
 监听用户表，字段包括：
 - `id`: 主键
 - `username`: 用户名（唯一）
+- `display_name`: 展示名称
 - `priority`: 优先级（1-10）
 - `is_active`: 是否激活
 - `last_crawled_at`: 最后采集时间（UTC）
 - `notes`: 备注
+- `created_at`: 创建时间（UTC）
+- `updated_at`: 更新时间（UTC）
 
 ## 注意事项
 
