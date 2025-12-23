@@ -199,4 +199,5 @@ data/
 *.db
 *.sqlite
 
-x
+.service_info
+.service_pids

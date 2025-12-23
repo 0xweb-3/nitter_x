@@ -21,74 +21,288 @@
 
 ---
 
-## 快速开始
+## 完整部署指南
 
-### 1. 环境要求
+> **重要提示**：本项目包含完整的数据库初始化脚本（v3.0.0），支持在**全新环境**中一键部署，无需手动运行迁移脚本。
 
-- Docker 20.10+
-- Docker Compose 2.0+
+### 🆕 新环境部署（推荐）
 
-### 2. 配置环境变量
+适用于首次部署或重新部署的场景。
+
+#### 1. 环境要求
+
+- **Docker** 20.10+
+- **Docker Compose** 2.0+
+- **Python** 3.10+
+
+#### 2. 克隆项目
+
+```bash
+git clone <your-repo-url>
+cd nitter_x
+```
+
+#### 3. 配置环境变量
 
 ```bash
 # 复制环境变量示例文件
 cp .env.example .env
 
-# 编辑 .env 文件，修改密码等配置
+# 编辑 .env 文件，配置必要参数
 nano .env
 ```
 
-### 3. 启动服务
+**必须配置的参数**：
+```bash
+# PostgreSQL 配置
+POSTGRES_PASSWORD=your-secure-password    # 修改为强密码
+
+# Redis 配置
+REDIS_PASSWORD=your-redis-password        # 修改为强密码
+
+# LLM API 配置（用于推文智能处理）
+LLM_API_KEY=your-api-key                  # 必需，LLM API 密钥
+LLM_API_URL=https://yibuapi.com/v1        # 可选，默认 OpenAI 兼容端点
+LLM_MODEL=gpt-3.5-turbo                   # 可选，默认模型
+
+# 采集配置（可选调整）
+CRAWL_INTERVAL=60                         # 采集循环间隔（秒）
+CRAWL_USER_INTERVAL=180                   # 用户采集间隔（秒）
+```
+
+#### 4. 启动 Docker 服务
 
 ```bash
-# 启动 PostgreSQL 和 Redis
+# 启动 PostgreSQL 和 Redis（首次启动会自动初始化数据库）
 docker-compose up -d
 
 # 查看服务状态
 docker-compose ps
 
-# 查看日志
-docker-compose logs -f
+# 查看日志（确认数据库初始化成功）
+docker-compose logs -f postgres
+
+# 等待看到 "database system is ready to accept connections"
+# Ctrl+C 退出日志查看
 ```
 
-### 4. 安装 Python 依赖
+#### 5. 验证数据库初始化
 
 ```bash
-# 创建虚拟环境（可选）
-python3 -m venv .venv
-source .venv/bin/activate
+# 方法 1: 使用验证脚本（推荐）
+python verify_deployment.py
 
-# 安装依赖
+# 方法 2: 手动连接数据库查看
+docker-compose exec postgres psql -U nitter_user -d nitter_x
+
+# 在 psql 中执行
+\dt                          # 查看所有表
+\d tweets                    # 查看 tweets 表结构
+\d processed_tweets          # 查看 processed_tweets 表结构
+\dT+ processing_status_enum  # 查看枚举类型
+\q                           # 退出
+```
+
+**使用验证脚本的好处**：
+- ✅ 自动检查所有必需的表和字段
+- ✅ 验证 P0-P6 分级系统配置
+- ✅ 检查 Redis 连接
+- ✅ 验证 LLM 配置
+- ✅ 检查目录结构
+
+**应该看到以下表**：
+- `tweets` - 推文主表（包含 media_urls、has_media、processing_status 等字段）
+- `processed_tweets` - 推文处理结果表（grade 字段为 P0-P6）
+- `watched_users` - 关注用户表（包含 notes 字段）
+- `tag_definitions` - 标签定义表
+- `processing_logs` - 处理日志表
+
+#### 6. 安装 Python 依赖
+
+```bash
+# 创建虚拟环境（推荐）
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# 安装核心依赖
 pip install -r requirements.txt
 
 # 安装 Streamlit 依赖
 pip install -r requirements-streamlit.txt
 ```
 
-### 5. 添加监听用户
+#### 7. 添加监听用户
 
 ```bash
 # 添加用户到监听列表
 python manage_users.py add elonmusk --name "Elon Musk" --priority 10
 python manage_users.py add VitalikButerin --name "Vitalik Buterin" --priority 9
+python manage_users.py add cz_binance --name "CZ" --priority 9
 
 # 查看用户列表
 python manage_users.py list
 ```
 
-### 6. 启动应用
+#### 8. 测试 LLM 配置（可选但推荐）
 
 ```bash
-# 启动 Streamlit Web UI
-./start_streamlit.sh
-# 或手动启动
-streamlit run streamlit_app/app.py
+# 测试 LLM API 连接
+python test_llm.py
 
-# 在另一个终端启动推文采集
-python main.py
+# 测试完整的推文处理流程
+python test_tweet_processing.py
+```
+
+#### 9. 启动应用
+
+```bash
+# 方式 1: 使用启动脚本（推荐）
+./start_streamlit.sh
+
+# 方式 2: 手动启动
+streamlit run streamlit_app/app.py
 ```
 
 访问 **http://localhost:8501** 查看 Web 界面。
+
+#### 10. 启动推文采集和处理
+
+```bash
+# 终端 1: 启动推文采集
+python main.py
+
+# 终端 2: 启动推文处理 Worker（可选）
+python process_worker.py
+
+# 或使用 nohup 后台运行
+nohup python main.py > logs/crawler.log 2>&1 &
+nohup python process_worker.py > logs/process_worker.log 2>&1 &
+```
+
+---
+
+### 🔄 现有环境升级
+
+如果你已经部署了旧版本的项目，需要升级到 v3.0.0（P0-P6 分级系统）：
+
+#### 方案 1: 重新部署（推荐，数据会丢失）
+
+```bash
+# 1. 备份现有数据（如果需要）
+docker-compose exec postgres pg_dump -U nitter_user nitter_x > backup_$(date +%Y%m%d).sql
+
+# 2. 停止并删除现有容器和数据卷
+docker-compose down -v
+
+# 3. 重新启动（会自动初始化最新数据库结构）
+docker-compose up -d
+
+# 4. 按照"新环境部署"的步骤 6-10 继续
+```
+
+#### 方案 2: 保留数据升级（复杂，需要手动迁移）
+
+⚠️ **注意**：由于分级系统从 A-F 改为 P0-P6，已有的处理结果需要重新处理。
+
+```bash
+# 1. 备份数据库
+docker-compose exec postgres pg_dump -U nitter_user nitter_x > backup_$(date +%Y%m%d).sql
+
+# 2. 检查当前数据库结构
+docker-compose exec postgres psql -U nitter_user -d nitter_x -c "\d tweets"
+
+# 3. 按需运行迁移脚本（根据缺少的字段）
+# 如果缺少 notes 字段
+python migrations/add_notes_field.py
+
+# 如果缺少 tweet_url 字段
+python migrations/add_tweet_url_field.py
+
+# 如果缺少 media_urls 和 has_media 字段
+python migrations/add_media_fields.py
+
+# 如果缺少 processed_tweets 表或 processing_status 字段
+python migrations/add_processed_tweets.py
+
+# 如果 processed_tweets 表的 grade 字段是 CHAR(1)（A-F）
+python migrations/update_grade_to_p_levels.py
+
+# 4. 验证所有字段已添加
+docker-compose exec postgres psql -U nitter_user -d nitter_x -c "\d tweets"
+docker-compose exec postgres psql -U nitter_user -d nitter_x -c "\d processed_tweets"
+```
+
+---
+
+### ✅ 部署验证清单
+
+完成部署后，请验证以下内容：
+
+**快速验证（推荐）**：
+```bash
+python verify_deployment.py
+```
+
+**详细验证清单**：
+- [ ] PostgreSQL 容器运行正常（`docker-compose ps`）
+- [ ] Redis 容器运行正常（`docker-compose ps`）
+- [ ] 验证脚本通过所有检查（`python verify_deployment.py`）
+- [ ] 数据库包含所有必需的表（`\dt` 查看）
+- [ ] `tweets` 表包含 `media_urls`、`has_media`、`processing_status` 字段
+- [ ] `processed_tweets` 表的 `grade` 字段类型为 `VARCHAR(2)`，约束为 P0-P6
+- [ ] `watched_users` 表包含 `notes` 字段
+- [ ] `processing_status_enum` 枚举类型存在
+- [ ] LLM API 配置正确（`python test_llm.py` 测试通过）
+- [ ] Streamlit 界面可以访问（http://localhost:8501）
+- [ ] 可以添加监听用户（`python manage_users.py list`）
+- [ ] 推文采集正常（查看 `logs/crawler.log`）
+- [ ] 推文处理正常（查看 `logs/process_worker.log`，如果启用）
+
+---
+
+### 🚀 快速开始（已部署环境）
+
+如果你已经完成了上述部署步骤，日常使用只需：
+
+#### 方式 1: 一键启动（推荐）
+
+```bash
+# 一键启动所有服务（自动环境检查）
+./start.sh
+
+# 查看服务状态
+./status.sh
+
+# 停止所有服务
+./stop.sh
+```
+
+`start.sh` 脚本会自动：
+- ✅ 检查 Docker、Python 等必需环境
+- ✅ 启动 PostgreSQL 和 Redis（如果未运行）
+- ✅ 运行部署验证脚本
+- ✅ 启动推文采集服务（后台）
+- ✅ 启动推文处理服务（后台）
+- ✅ 启动 Streamlit Web 界面（后台）
+
+所有服务日志自动保存到 `logs/` 目录。
+
+#### 方式 2: 手动启动
+
+```bash
+# 1. 启动 Docker 服务（如果未运行）
+docker-compose up -d
+
+# 2. 激活 Python 虚拟环境
+source .venv/bin/activate
+
+# 3. 启动 Streamlit（可选）
+streamlit run streamlit_app/app.py
+
+# 4. 启动采集和处理（可选）
+python main.py              # 推文采集
+python process_worker.py    # 推文处理
+```
 
 ---
 
@@ -296,13 +510,21 @@ LLM_API_URL=https://yibuapi.com/v1   # API 端点 URL
 LLM_MODEL=gpt-3.5-turbo               # 模型名称
 ```
 
-#### 2. 运行数据库迁移
+#### 2. 数据库初始化状态检查
 
-首次使用前需要运行迁移脚本创建处理结果表：
+> **注意**：如果按照上述"完整部署指南"进行新环境部署，数据库已包含所有必要的表结构，**无需**手动运行迁移脚本。
+
+**仅在旧环境升级时**需要检查：
 
 ```bash
-# 创建 processed_tweets 表和相关索引
+# 检查 processed_tweets 表是否存在
+docker-compose exec postgres psql -U nitter_user -d nitter_x -c "\d processed_tweets"
+
+# 如果表不存在，运行迁移脚本
 python migrations/add_processed_tweets.py
+
+# 如果 grade 字段是 CHAR(1)（旧版 A-F 分级），运行升级脚本
+python migrations/update_grade_to_p_levels.py
 ```
 
 #### 3. 测试处理流程

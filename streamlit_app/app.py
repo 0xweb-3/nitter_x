@@ -233,7 +233,7 @@ try:
     info_col1, info_col2 = st.columns(2)
 
     with info_col1:
-        st.info(f"📊 **数据库**: PostgreSQL\n\n💾 **缓存**: Redis\n\n🔄 **队列任务**: {stats['queue_length']} 个待处理")
+        st.info(f"📊 **数据库**: PostgreSQL\n\n💾 **缓存**: Redis\n\n🔄 **待处理推文**: {stats['pending_count']} 条")
 
     with info_col2:
         if stats["last_crawl_time"]:
