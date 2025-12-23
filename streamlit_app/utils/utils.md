@@ -9,27 +9,50 @@
 ### db_helper.py
 数据库查询辅助函数，提供：
 - 获取推文列表（支持分页、筛选）
-- 获取用户列表
+- 用户管理（获取、添加、修改、删除）
 - 获取系统统计数据
 - 获取推文趋势数据
 - 用户推文统计
 
 **主要函数**：
 ```python
+# 推文相关
 def get_tweets(limit, offset, username=None, start_date=None, end_date=None, keyword=None):
     """获取推文列表（支持分页和筛选）"""
     pass
 
-def get_users():
-    """获取所有监听用户"""
+def get_tweet_count(username=None, start_date=None, end_date=None, keyword=None):
+    """获取推文总数（支持筛选）"""
     pass
 
-def get_stats():
+# 用户管理
+def get_all_users():
+    """获取所有监听用户（包含推文统计）"""
+    pass
+
+def add_user(username, priority=1, notes="", display_name=""):
+    """添加监听用户"""
+    pass
+
+def update_user(username, priority=None, notes=None, display_name=None, is_active=None):
+    """更新用户信息（支持部分更新）"""
+    pass
+
+def delete_user(username):
+    """删除监听用户"""
+    pass
+
+# 统计数据
+def get_system_stats():
     """获取系统统计数据"""
     pass
 
-def get_trend_data(days=30):
-    """获取推文采集趋势数据"""
+def get_daily_tweet_stats(days=7):
+    """获取每日推文统计（最近 N 天）"""
+    pass
+
+def get_user_tweet_stats(limit=10):
+    """获取用户推文统计（Top N 活跃用户）"""
     pass
 ```
 
@@ -38,6 +61,7 @@ def get_trend_data(days=30):
 - 返回 Pandas DataFrame 或字典
 - 处理异常并返回友好错误信息
 - 使用 Streamlit 缓存优化性能
+- 调用 PostgresClient 的底层方法，保持代码一致性
 
 ### format_helper.py
 格式化辅助函数，提供：

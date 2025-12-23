@@ -10,7 +10,7 @@
 PostgreSQL 数据库客户端，提供：
 - 连接池管理（SimpleConnectionPool，1-10 连接）
 - 推文数据操作（插入、查询、更新）
-- 用户数据操作（获取监听用户列表）
+- 用户数据操作（获取、添加、修改、删除监听用户）
 - 统计查询（推文数量、用户推文数等）
 - 时区配置：所有连接默认使用 UTC 时区
 
@@ -18,6 +18,9 @@ PostgreSQL 数据库客户端，提供：
 - `insert_tweet()`: 插入推文数据
 - `get_latest_tweet_id()`: 获取用户最新推文 ID
 - `get_watched_users()`: 获取监听用户列表
+- `add_watched_user()`: 添加监听用户
+- `update_watched_user()`: 更新用户信息（优先级、状态、备注等）
+- `delete_watched_user()`: 删除监听用户
 - `execute_query()`: 执行通用 SQL 查询
 - `execute_update()`: 执行更新操作
 
@@ -59,6 +62,24 @@ pg.insert_tweet(tweet_data)
 
 # 查询用户
 users = pg.get_watched_users()
+
+# 添加监听用户
+pg.add_watched_user(
+    username="elonmusk",
+    display_name="Elon Musk",
+    priority=8
+)
+
+# 更新用户信息
+pg.update_watched_user(
+    username="elonmusk",
+    priority=10,
+    notes="重点关注",
+    is_active=True
+)
+
+# 删除用户
+pg.delete_watched_user("test_user")
 ```
 
 ### Redis
