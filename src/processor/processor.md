@@ -2,7 +2,268 @@
 
 ## 目录作用
 
-处理与分析层（预留 v3.0.0）。
+处理与分析层，实现推文内容处理和分析功能。
+
+## 已实现模块
+
+### llm_client.py - LLM 客户端封装
+
+提供统一的 LLM 调用接口，基于 LangChain 框架。
+
+**主要功能**:
+- 支持自定义 API 端点（兼容 OpenAI API 格式）
+- 单例模式，避免重复初始化
+- 提供多种调用方式：简单聊天、模板聊天、批量调用
+- 完整的错误处理和日志记录
+
+**主要方法**:
+```python
+# 简单聊天
+def chat(user_message: str, system_message: Optional[str] = None, **kwargs) -> str:
+    """发送聊天消息并获取响应"""
+    pass
+
+# 模板聊天
+def chat_with_template(
+    template: str,
+    variables: Dict[str, Any],
+    system_message: Optional[str] = None,
+    **kwargs
+) -> str:
+    """使用模板发送消息（支持变量替换）"""
+    pass
+
+# 批量调用
+def batch_chat(
+    messages: List[str],
+    system_message: Optional[str] = None,
+    **kwargs
+) -> List[str]:
+    """批量发送消息（并发执行，提高效率）"""
+    pass
+
+# 获取单例
+def get_llm_client() -> LLMClient:
+    """获取 LLM 客户端单例"""
+    pass
+```
+
+**使用示例**:
+```python
+from src.processor.llm_client import get_llm_client, chat
+
+# 方式 1: 使用单例
+client = get_llm_client()
+response = client.chat("你好，请介绍一下自己。")
+
+# 方式 2: 使用便捷函数
+response = chat(
+    user_message="请分析这条推文的情绪",
+    system_message="你是一个专业的推文分析助手"
+)
+
+# 方式 3: 使用模板
+response = client.chat_with_template(
+    template="请分析这条推文：{content}",
+    variables={"content": "今天天气真好！"},
+    system_message="你是推文分析助手"
+)
+```
+
+**配置要求**:
+- `LLM_API_KEY`: API 密钥（必需）
+- `LLM_API_URL`: API 端点 URL（默认：https://api.openai.com/v1）
+- `LLM_MODEL`: 模型名称（默认：gpt-3.5-turbo）
+
+**测试**:
+```bash
+# 测试 LLM 客户端配置
+python test_llm.py
+```
+
+### prompts.py - 提示词统一管理
+
+统一管理所有 LLM 调用的提示词，便于后续调优。
+
+**主要类**:
+- `TweetProcessingPrompts`: 推文处理相关提示词
+  - `SYSTEM_GRADE`: 分级系统消息
+  - `SYSTEM_PROCESS`: 处理系统消息
+  - `GRADE_DEFINITIONS`: 分级标准定义
+  - `get_grade_prompt(content)`: 获取分级提示词
+  - `get_process_prompt(content)`: 获取详细处理提示词
+
+**使用示例**:
+```python
+from src.processor.prompts import TweetProcessingPrompts
+
+prompts = TweetProcessingPrompts
+
+# 获取分级提示词
+grade_prompt = prompts.get_grade_prompt("推文内容...")
+
+# 获取处理提示词
+process_prompt = prompts.get_process_prompt("推文内容...")
+```
+
+### tweet_processor.py - 推文处理器
+
+完整的推文处理流程，包括分级、翻译、摘要、关键词提取和向量化。
+
+**分级标准** (A-F):
+- **A**: 和 crypto 强相关（直接讨论加密货币、区块链、DeFi、NFT等）
+- **B**: 和 crypto 相关（涉及加密货币相关的人物、公司、政策）
+- **C**: 对 crypto 有影响（宏观经济、金融政策、科技趋势等）
+- **D**: 对 crypto 间接影响（一般性经济新闻、科技新闻）
+- **E**: 某些投资讨论（投资理念、资产配置，但不特指加密货币）
+- **F**: 没有关系可舍弃（与加密货币无关的内容）
+
+**处理流程**:
+1. 对所有推文进行分级（A-F）
+2. 对 A/B/C 级推文进行详细处理：
+   - 语言检测
+   - 非中文自动翻译为中文
+   - 生成 30 字以内中文摘要
+   - 提取 3-5 个关键词
+   - 生成摘要的向量表示（用于后续相似度检索）
+
+**主要方法**:
+```python
+def process_tweet(tweet_id: str, content: str, author: str = "") -> Dict[str, Any]:
+    """
+    完整处理一条推文
+
+    Returns:
+        {
+            "tweet_id": "推文ID",
+            "grade": "A/B/C/D/E/F",
+            "summary_cn": "中文摘要（≤30字）",
+            "keywords": ["关键词1", "关键词2", ...],
+            "translated_content": "翻译内容（如果原文非中文）",
+            "embedding": [0.1, 0.2, ...],  # 向量
+            "processing_time_ms": 处理耗时（毫秒）
+        }
+    """
+```
+
+**使用示例**:
+```python
+from src.processor.tweet_processor import get_tweet_processor
+
+processor = get_tweet_processor()
+
+result = processor.process_tweet(
+    tweet_id="123456",
+    content="Bitcoin hits new all-time high!",
+    author="elonmusk"
+)
+
+print(f"分级: {result['grade']}")
+print(f"摘要: {result['summary_cn']}")
+print(f"关键词: {result['keywords']}")
+```
+
+### embedder.py - 文本向量化模块
+
+使用本地 sentence-transformers 模型生成文本嵌入向量。
+
+**使用的模型**:
+- `paraphrase-multilingual-MiniLM-L12-v2`
+- 支持多语言（包括中文）
+- 向量维度: 384
+- 模型自动缓存到 `data/models/` 目录
+
+**主要方法**:
+```python
+# 生成单个文本向量
+def generate_embedding(text: str) -> Optional[List[float]]:
+    """生成文本的嵌入向量"""
+    pass
+
+# 批量生成向量
+def generate_embeddings_batch(texts: List[str]) -> List[Optional[List[float]]]:
+    """批量生成文本嵌入向量（效率更高）"""
+    pass
+
+# 计算相似度
+def calculate_similarity(embedding1: List[float], embedding2: List[float]) -> float:
+    """计算两个向量的余弦相似度"""
+    pass
+```
+
+**使用示例**:
+```python
+from src.processor.embedder import generate_embedding, calculate_similarity
+
+# 生成向量
+embedding1 = generate_embedding("比特币价格上涨")
+embedding2 = generate_embedding("BTC突破新高")
+
+# 计算相似度
+similarity = calculate_similarity(embedding1, embedding2)
+print(f"相似度: {similarity:.2f}")
+```
+
+## 使用指南
+
+### 1. 处理单条推文（测试）
+
+```bash
+# 运行测试脚本
+python test_tweet_processing.py
+```
+
+### 2. 批量处理推文（Worker）
+
+```bash
+# 启动处理 Worker（持续运行）
+python process_worker.py
+```
+
+Worker 会：
+- 每 5 秒检查一次待处理推文
+- 每批处理 10 条推文
+- 自动更新推文处理状态
+- 保存处理结果到数据库
+
+### 3. 查看处理结果（Streamlit）
+
+```bash
+# 启动 Streamlit
+streamlit run streamlit_app/app.py
+
+# 访问 http://localhost:8501/处理结果
+```
+
+页面功能：
+- 按分级筛选展示（A/B/C/D/E/F）
+- 显示摘要、关键词
+- 查看翻译内容（如果有）
+- 统计各分级推文数量
+
+## 数据库表结构
+
+### processed_tweets 表
+
+存储推文处理结果：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | SERIAL | 主键 |
+| tweet_id | VARCHAR(100) | 推文ID（外键，唯一） |
+| grade | CHAR(1) | 分级（A/B/C/D/E/F） |
+| summary_cn | VARCHAR(100) | 中文摘要（≤30字） |
+| keywords | JSONB | 关键词数组 |
+| embedding | JSONB | 向量表示 |
+| translated_content | TEXT | 翻译内容 |
+| processing_time_ms | INTEGER | 处理耗时（毫秒） |
+| processed_at | TIMESTAMP | 处理时间（UTC） |
+
+### tweets 表新增字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| processing_status | ENUM | 处理状态（pending/processing/completed/failed/skipped） |
 
 ## 说明
 

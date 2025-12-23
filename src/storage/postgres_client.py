@@ -320,6 +320,188 @@ class PostgresClient:
             logger.error(f"删除关注用户失败: {e}")
             return False
 
+    # ========== 推文处理结果相关方法 ==========
+
+    def insert_processed_tweet(self, processed_data: Dict) -> Optional[int]:
+        """
+        插入推文处理结果
+
+        Args:
+            processed_data: 处理结果字典，包含：
+                - tweet_id: 推文 ID（必需）
+                - grade: 分级结果（必需）
+                - summary_cn: 中文摘要
+                - keywords: 关键词列表
+                - embedding: 向量
+                - translated_content: 翻译内容
+                - processing_time_ms: 处理耗时
+
+        Returns:
+            插入的记录 ID，失败返回 None
+        """
+        import json
+
+        query = """
+        INSERT INTO processed_tweets (
+            tweet_id, grade, summary_cn, keywords, embedding,
+            translated_content, processing_time_ms
+        )
+        VALUES (
+            %(tweet_id)s, %(grade)s, %(summary_cn)s, %(keywords)s::jsonb,
+            %(embedding)s::jsonb, %(translated_content)s, %(processing_time_ms)s
+        )
+        ON CONFLICT (tweet_id) DO UPDATE SET
+            grade = EXCLUDED.grade,
+            summary_cn = EXCLUDED.summary_cn,
+            keywords = EXCLUDED.keywords,
+            embedding = EXCLUDED.embedding,
+            translated_content = EXCLUDED.translated_content,
+            processing_time_ms = EXCLUDED.processing_time_ms,
+            updated_at = NOW()
+        RETURNING id
+        """
+
+        try:
+            # 准备数据
+            data = {
+                "tweet_id": processed_data["tweet_id"],
+                "grade": processed_data["grade"],
+                "summary_cn": processed_data.get("summary_cn"),
+                "keywords": json.dumps(processed_data.get("keywords", []), ensure_ascii=False),
+                "embedding": json.dumps(processed_data.get("embedding")) if processed_data.get("embedding") else None,
+                "translated_content": processed_data.get("translated_content"),
+                "processing_time_ms": processed_data.get("processing_time_ms"),
+            }
+
+            result = self.execute_query(query, data)
+            if result:
+                record_id = result[0]['id']
+                logger.info(f"成功保存推文处理结果: {processed_data['tweet_id']}, 分级: {processed_data['grade']}")
+                return record_id
+            return None
+
+        except Exception as e:
+            logger.error(f"保存推文处理结果失败: {e}")
+            return None
+
+    def update_tweet_processing_status(
+        self, tweet_id: str, status: str
+    ) -> bool:
+        """
+        更新推文处理状态
+
+        Args:
+            tweet_id: 推文 ID
+            status: 状态（pending/processing/completed/failed/skipped）
+
+        Returns:
+            是否更新成功
+        """
+        query = """
+        UPDATE tweets
+        SET processing_status = %s::processing_status_enum
+        WHERE tweet_id = %s
+        """
+
+        try:
+            rows = self.execute_update(query, (status, tweet_id))
+            if rows > 0:
+                logger.debug(f"推文 {tweet_id} 状态更新为: {status}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"更新推文处理状态失败: {e}")
+            return False
+
+    def get_pending_tweets(self, limit: int = 100) -> List[Dict]:
+        """
+        获取待处理推文列表
+
+        Args:
+            limit: 最大返回数量
+
+        Returns:
+            推文列表
+        """
+        query = """
+        SELECT
+            tweet_id,
+            author,
+            content,
+            published_at
+        FROM tweets
+        WHERE processing_status = 'pending'
+        ORDER BY published_at DESC
+        LIMIT %s
+        """
+
+        try:
+            result = self.execute_query(query, (limit,))
+            if result:
+                # execute_query 返回的已经是字典列表，直接返回
+                logger.info(f"获取到 {len(result)} 条待处理推文")
+                return result
+            return []
+        except Exception as e:
+            logger.error(f"获取待处理推文失败: {e}")
+            return []
+
+    def get_processed_tweets(
+        self,
+        grade: str = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[Dict]:
+        """
+        获取处理结果列表
+
+        Args:
+            grade: 分级筛选（可选）
+            limit: 返回数量
+            offset: 偏移量
+
+        Returns:
+            处理结果列表
+        """
+        where_clause = ""
+        params = []
+
+        if grade:
+            where_clause = "WHERE p.grade = %s"
+            params.append(grade)
+
+        params.extend([limit, offset])
+
+        query = f"""
+        SELECT
+            p.id,
+            p.tweet_id,
+            t.author,
+            t.content,
+            p.grade,
+            p.summary_cn,
+            p.keywords,
+            p.translated_content,
+            p.processing_time_ms,
+            p.processed_at,
+            t.published_at
+        FROM processed_tweets p
+        JOIN tweets t ON p.tweet_id = t.tweet_id
+        {where_clause}
+        ORDER BY p.processed_at DESC
+        LIMIT %s OFFSET %s
+        """
+
+        try:
+            result = self.execute_query(query, tuple(params))
+            if result:
+                # execute_query 返回的已经是字典列表，直接返回
+                return result
+            return []
+        except Exception as e:
+            logger.error(f"获取处理结果失败: {e}")
+            return []
+
     def close(self):
         """关闭连接池"""
         if self.pool:

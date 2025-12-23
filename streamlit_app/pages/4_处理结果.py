@@ -1,0 +1,256 @@
+"""
+推文处理结果页面
+
+展示经过 LLM 处理后的推文分级、摘要、关键词等信息
+"""
+
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta
+import json
+
+from src.storage.postgres_client import get_postgres_client
+from streamlit_app.utils.format_helper import (
+    format_datetime,
+    format_relative_time,
+    format_number,
+)
+
+# 页面配置
+st.set_page_config(
+    page_title="推文处理结果",
+    page_icon="🤖",
+    layout="wide",
+)
+
+st.title("🤖 推文处理结果")
+st.markdown("查看经过 LLM 智能处理后的推文分级和摘要信息")
+
+# 分级定义
+GRADE_INFO = {
+    "A": {"label": "🔴 A级 - crypto强相关", "color": "#ff4b4b", "desc": "直接讨论加密货币、区块链、DeFi、NFT等"},
+    "B": {"label": "🟠 B级 - crypto相关", "color": "#ffa421", "desc": "涉及加密货币相关的人物、公司、政策"},
+    "C": {"label": "🟡 C级 - crypto影响", "color": "#ffd700", "desc": "宏观经济、金融政策、科技趋势等"},
+    "D": {"label": "🟢 D级 - crypto间接影响", "color": "#21c354", "desc": "一般性经济新闻、科技新闻"},
+    "E": {"label": "🔵 E级 - 投资讨论", "color": "#1f77b4", "desc": "投资理念、资产配置（不特指crypto）"},
+    "F": {"label": "⚫ F级 - 无关内容", "color": "#666666", "desc": "与加密货币无关的内容"},
+}
+
+# 侧边栏 - 筛选器
+st.sidebar.header("📊 筛选与设置")
+
+# 分级筛选
+selected_grades = st.sidebar.multiselect(
+    "按分级筛选",
+    options=list(GRADE_INFO.keys()),
+    default=["A", "B", "C"],
+    format_func=lambda x: GRADE_INFO[x]["label"],
+)
+
+# 每页显示数量
+page_size = st.sidebar.selectbox(
+    "每页显示数量",
+    options=[10, 20, 50, 100],
+    index=1,
+)
+
+# 自动刷新
+auto_refresh = st.sidebar.checkbox("自动刷新（60秒）", value=False)
+if auto_refresh:
+    import time
+    time.sleep(60)
+    st.rerun()
+
+# 初始化分页状态
+if "processed_page" not in st.session_state:
+    st.session_state.processed_page = 0
+
+# 获取数据
+@st.cache_data(ttl=60)
+def load_processed_data(grades, limit, offset):
+    """加载处理结果数据"""
+    pg = get_postgres_client()
+
+    if not grades:
+        return []
+
+    # 如果选择了多个分级，需要修改查询
+    if len(grades) == 1:
+        return pg.get_processed_tweets(grade=grades[0], limit=limit, offset=offset)
+    else:
+        # 多分级查询
+        placeholders = ','.join(['%s'] * len(grades))
+        query = f"""
+        SELECT
+            p.id,
+            p.tweet_id,
+            t.author,
+            t.content,
+            p.grade,
+            p.summary_cn,
+            p.keywords,
+            p.translated_content,
+            p.processing_time_ms,
+            p.processed_at,
+            t.published_at
+        FROM processed_tweets p
+        JOIN tweets t ON p.tweet_id = t.tweet_id
+        WHERE p.grade IN ({placeholders})
+        ORDER BY p.processed_at DESC
+        LIMIT %s OFFSET %s
+        """
+        params = tuple(grades) + (limit, offset)
+        result = pg.execute_query(query, params)
+        return result if result else []
+
+@st.cache_data(ttl=60)
+def get_stats():
+    """获取统计数据"""
+    pg = get_postgres_client()
+
+    query = """
+    SELECT
+        grade,
+        COUNT(*) as count
+    FROM processed_tweets
+    GROUP BY grade
+    ORDER BY grade
+    """
+
+    result = pg.execute_query(query)
+    return result if result else []
+
+# 显示统计信息
+st.subheader("📈 统计概览")
+
+stats_data = get_stats()
+if stats_data:
+    cols = st.columns(len(GRADE_INFO))
+
+    # 创建统计字典
+    stats_dict = {row['grade']: row['count'] for row in stats_data}
+
+    for idx, (grade, info) in enumerate(GRADE_INFO.items()):
+        count = stats_dict.get(grade, 0)
+        with cols[idx]:
+            st.metric(
+                label=info["label"],
+                value=format_number(count),
+                help=info["desc"]
+            )
+else:
+    st.info("暂无处理结果数据")
+
+st.divider()
+
+# 加载数据
+if selected_grades:
+    offset = st.session_state.processed_page * page_size
+    processed_tweets = load_processed_data(selected_grades, page_size, offset)
+
+    if processed_tweets:
+        # 顶部分页控制
+        col_info, col_nav = st.columns([3, 9])
+
+        with col_info:
+            st.write(f"📄 第 {st.session_state.processed_page + 1} 页 | 每页 {page_size} 条")
+
+        with col_nav:
+            nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([1, 1, 2, 1])
+
+            with nav_col1:
+                if st.button("⬅️ 上一页", disabled=st.session_state.processed_page == 0):
+                    st.session_state.processed_page -= 1
+                    st.rerun()
+
+            with nav_col2:
+                if st.button("➡️ 下一页", disabled=len(processed_tweets) < page_size):
+                    st.session_state.processed_page += 1
+                    st.rerun()
+
+            with nav_col3:
+                jump_page = st.number_input(
+                    "跳转到页码",
+                    min_value=1,
+                    value=st.session_state.processed_page + 1,
+                    step=1,
+                    label_visibility="collapsed"
+                )
+
+            with nav_col4:
+                if st.button("跳转"):
+                    st.session_state.processed_page = jump_page - 1
+                    st.rerun()
+
+        st.divider()
+
+        # 显示推文卡片
+        for tweet in processed_tweets:
+            grade = tweet['grade']
+            grade_info = GRADE_INFO[grade]
+
+            with st.container():
+                # 卡片头部
+                col_header1, col_header2 = st.columns([6, 6])
+
+                with col_header1:
+                    st.markdown(f"### {grade_info['label']}")
+
+                with col_header2:
+                    st.caption(f"⏱️ 处理于 {format_relative_time(tweet['processed_at'])} | 耗时 {tweet['processing_time_ms']}ms")
+
+                # 作者和发布时间
+                st.markdown(f"**作者**: @{tweet['author']} | **发布于**: {format_datetime(tweet['published_at'])}")
+
+                # 原文内容（可折叠）
+                with st.expander("📄 查看原文", expanded=False):
+                    st.write(tweet['content'])
+
+                # 处理结果
+                if grade in ['A', 'B', 'C']:
+                    # 摘要
+                    if tweet.get('summary_cn'):
+                        st.markdown(f"**📝 摘要**: {tweet['summary_cn']}")
+
+                    # 关键词
+                    if tweet.get('keywords'):
+                        try:
+                            keywords = json.loads(tweet['keywords']) if isinstance(tweet['keywords'], str) else tweet['keywords']
+                            if keywords:
+                                keyword_tags = " ".join([f"`{kw}`" for kw in keywords])
+                                st.markdown(f"**🏷️ 关键词**: {keyword_tags}")
+                        except:
+                            pass
+
+                    # 翻译内容（如果有）
+                    if tweet.get('translated_content'):
+                        with st.expander("🌐 查看翻译", expanded=False):
+                            st.write(tweet['translated_content'])
+
+                else:
+                    st.caption(f"ℹ️ {grade_info['desc']}")
+
+                st.divider()
+
+        # 底部分页控制
+        col_nav_bottom = st.columns([1, 1, 8])
+
+        with col_nav_bottom[0]:
+            if st.button("⬅️ 上一页 ", key="prev_bottom", disabled=st.session_state.processed_page == 0):
+                st.session_state.processed_page -= 1
+                st.rerun()
+
+        with col_nav_bottom[1]:
+            if st.button("➡️ 下一页 ", key="next_bottom", disabled=len(processed_tweets) < page_size):
+                st.session_state.processed_page += 1
+                st.rerun()
+
+    else:
+        st.info(f"暂无 {', '.join([GRADE_INFO[g]['label'] for g in selected_grades])} 的处理结果")
+
+else:
+    st.warning("⚠️ 请至少选择一个分级进行筛选")
+
+# 页脚信息
+st.divider()
+st.caption("💡 提示：运行 `python process_worker.py` 启动处理 Worker 来处理待处理推文")

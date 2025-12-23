@@ -20,6 +20,10 @@ flake8==6.1.0
 # Web interface (预留)
 streamlit==1.29.0
 
-# LLM (预留)
-# openai==1.6.0
-# anthropic==0.8.0
+# LLM
+langchain==0.3.13
+langchain-openai==0.2.14
+langchain-core==0.3.28
+openai==1.58.1
+sentence-transformers==3.3.1
+torch>=2.6.0

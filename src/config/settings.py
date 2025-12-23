@@ -34,7 +34,8 @@ class Settings:
 
     # LLM 配置
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "")
+    LLM_API_URL: str = os.getenv("LLM_API_URL", "https://api.openai.com/v1")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
 
     # 应用配置
     APP_ENV: str = os.getenv("APP_ENV", "development")

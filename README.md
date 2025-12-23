@@ -358,13 +358,26 @@ docker-compose exec postgres psql -U nitter_user -d nitter_x -c "\COPY (SELECT *
 
 > Redis 只保存"短生命周期状态"，PostgreSQL 才是事实源（Source of Truth）。
 
-### 3. 处理与分析层（Worker）- 计划中
+### 3. 处理与分析层（Worker）
 
-#### 3.1 文本清理（Rule-based）
+#### 3.1 LLM 客户端（✅ 已实现）
+
+提供统一的 LLM 调用接口，基于 LangChain 框架：
+- 支持自定义 API 端点（兼容 OpenAI API 格式）
+- 单例模式，避免重复初始化
+- 多种调用方式：简单聊天、模板聊天、批量调用
+- 完整的错误处理和日志记录
+
+**测试 LLM 配置**:
+```bash
+python test_llm.py
+```
+
+#### 3.2 文本清理（Rule-based）- 计划中
 - 去除：URL、表情符号、无效换行、RT 标记
 - 统一：编码、时间格式
 
-#### 3.2 LLM 标签系统
+#### 3.3 LLM 标签系统 - 计划中
 - 输入：清洗后的推文正文 + 元数据
 - 输出：
   - 主题标签（Crypto / AI / 宏观 / 项目）

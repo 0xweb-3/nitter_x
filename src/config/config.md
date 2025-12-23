@@ -41,6 +41,16 @@
 - 最小超时时间为 `2 × CRAWL_INTERVAL`
 - 根据待采集用户数自动调整，避免超时过长或过短
 
+### LLM 配置
+- `LLM_API_KEY`: LLM API 密钥（必需，用于调用 LLM 服务）
+- `LLM_API_URL`: LLM API 端点 URL（默认：https://api.openai.com/v1）
+- `LLM_MODEL`: LLM 模型名称（默认：gpt-3.5-turbo）
+
+**说明**：
+- 支持兼容 OpenAI API 格式的第三方服务（如 yibuapi.com）
+- 基于 LangChain 框架，统一调用接口
+- 用于推文内容分析、标签生成等功能
+
 ### 日志配置
 - `LOG_LEVEL`: 日志级别（DEBUG/INFO/WARNING/ERROR）
 - `LOG_FILE`: 日志文件路径

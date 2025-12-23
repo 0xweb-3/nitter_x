@@ -39,6 +39,35 @@
 - 视频：MP4/WEBM/MOV
 - GIF：作为视频格式存储
 
+### add_processed_tweets.py
+为推文处理系统添加数据库支持：
+- **tweets 表**：添加 `processing_status` 字段（枚举类型：pending/processing/completed/failed/skipped）
+- **processed_tweets 表**：新建表存储 LLM 处理结果
+  - `tweet_id`: 关联原推文（外键）
+  - `grade`: 分级结果（A/B/C/D/E/F）
+  - `summary_cn`: 中文摘要（≤30字）
+  - `keywords`: 关键词数组（JSONB）
+  - `embedding`: 文本向量（JSONB，用于相似度检索）
+  - `translated_content`: 翻译内容
+  - `processing_time_ms`: 处理耗时
+- **索引**：
+  - `idx_processed_tweets_grade`: 分级查询索引
+  - `idx_processed_tweets_processed_at`: 处理时间索引
+  - `idx_tweets_processing_status`: 待处理推文索引（部分索引，仅 pending 状态）
+- **触发器**：自动更新 `updated_at` 字段
+
+**执行：** `python migrations/add_processed_tweets.py`
+
+**回滚：** `python migrations/add_processed_tweets.py --rollback`
+
+**分级标准：**
+- A：和 crypto 强相关
+- B：和 crypto 相关
+- C：对 crypto 有影响
+- D：对 crypto 间接影响
+- E：某些投资讨论
+- F：没有关系可舍弃
+
 ## 使用方式
 
 ```bash
