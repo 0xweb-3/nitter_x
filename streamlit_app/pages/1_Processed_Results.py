@@ -30,7 +30,7 @@ st.markdown("查看经过 LLM 智能处理后的推文分级和摘要信息")
 GRADE_INFO = {
     "A": {"label": "🔴 A级 - crypto强相关", "color": "#ff4b4b", "desc": "直接讨论加密货币、区块链、DeFi、NFT等"},
     "B": {"label": "🟠 B级 - crypto相关", "color": "#ffa421", "desc": "涉及加密货币相关的人物、公司、政策"},
-    "C": {"label": "🟡 C级 - crypto影响", "color": "#ffd700", "desc": "宏观经济、金融政策、科技趋势等"},
+    "C": {"label": "🟡 C级 - crypto影响", "color": "#ffd700", "desc": "宏观经济、金融政策、科技趋势、钱包转账等"},
     "D": {"label": "🟢 D级 - crypto间接影响", "color": "#21c354", "desc": "一般性经济新闻、科技新闻"},
     "E": {"label": "🔵 E级 - 投资讨论", "color": "#1f77b4", "desc": "投资理念、资产配置（不特指crypto）"},
     "F": {"label": "⚫ F级 - 无关内容", "color": "#666666", "desc": "与加密货币无关的内容"},
@@ -86,6 +86,7 @@ def load_processed_data(grades, limit, offset):
             p.tweet_id,
             t.author,
             t.content,
+            t.tweet_url,
             p.grade,
             p.summary_cn,
             p.keywords,
@@ -96,7 +97,7 @@ def load_processed_data(grades, limit, offset):
         FROM processed_tweets p
         JOIN tweets t ON p.tweet_id = t.tweet_id
         WHERE p.grade IN ({placeholders})
-        ORDER BY p.processed_at DESC
+        ORDER BY t.published_at DESC
         LIMIT %s OFFSET %s
         """
         params = tuple(grades) + (limit, offset)
@@ -119,29 +120,6 @@ def get_stats():
 
     result = pg.execute_query(query)
     return result if result else []
-
-# 显示统计信息
-st.subheader("📈 统计概览")
-
-stats_data = get_stats()
-if stats_data:
-    cols = st.columns(len(GRADE_INFO))
-
-    # 创建统计字典
-    stats_dict = {row['grade']: row['count'] for row in stats_data}
-
-    for idx, (grade, info) in enumerate(GRADE_INFO.items()):
-        count = stats_dict.get(grade, 0)
-        with cols[idx]:
-            st.metric(
-                label=info["label"],
-                value=format_number(count),
-                help=info["desc"]
-            )
-else:
-    st.info("暂无处理结果数据")
-
-st.divider()
 
 # 加载数据
 if selected_grades:
@@ -200,14 +178,28 @@ if selected_grades:
                     st.caption(f"⏱️ 处理于 {format_relative_time(tweet['processed_at'])} | 耗时 {tweet['processing_time_ms']}ms")
 
                 # 作者和发布时间
-                st.markdown(f"**作者**: @{tweet['author']} | **发布于**: {format_datetime(tweet['published_at'])}")
+                col_meta1, col_meta2 = st.columns([6, 6])
 
-                # 原文内容（可折叠）
-                with st.expander("📄 查看原文", expanded=False):
-                    st.write(tweet['content'])
+                with col_meta1:
+                    st.markdown(f"**作者**: @{tweet['author']} | **发布于**: {format_datetime(tweet['published_at'])}")
+
+                with col_meta2:
+                    # 源推文链接
+                    if tweet.get('tweet_url'):
+                        st.markdown(f"**🔗 原文链接**: [{tweet['tweet_url']}]({tweet['tweet_url']})")
 
                 # 处理结果
                 if grade in ['A', 'B', 'C']:
+                    # 如果有翻译内容，优先展示翻译
+                    if tweet.get('translated_content'):
+                        st.markdown(f"**🌐 中文翻译**: {tweet['translated_content']}")
+                        # 原文放在可折叠区域
+                        with st.expander("📄 查看原文", expanded=False):
+                            st.write(tweet['content'])
+                    else:
+                        # 没有翻译，直接展示内容
+                        st.markdown(f"**📄 内容**: {tweet['content']}")
+
                     # 摘要
                     if tweet.get('summary_cn'):
                         st.markdown(f"**📝 摘要**: {tweet['summary_cn']}")
@@ -222,12 +214,10 @@ if selected_grades:
                         except:
                             pass
 
-                    # 翻译内容（如果有）
-                    if tweet.get('translated_content'):
-                        with st.expander("🌐 查看翻译", expanded=False):
-                            st.write(tweet['translated_content'])
-
                 else:
+                    # D/E/F 级推文，展示原文
+                    with st.expander("📄 查看原文", expanded=False):
+                        st.write(tweet['content'])
                     st.caption(f"ℹ️ {grade_info['desc']}")
 
                 st.divider()
@@ -250,6 +240,28 @@ if selected_grades:
 
 else:
     st.warning("⚠️ 请至少选择一个分级进行筛选")
+
+# 统计概览（放在底部）
+st.divider()
+st.subheader("📈 统计概览")
+
+stats_data = get_stats()
+if stats_data:
+    cols = st.columns(len(GRADE_INFO))
+
+    # 创建统计字典
+    stats_dict = {row['grade']: row['count'] for row in stats_data}
+
+    for idx, (grade, info) in enumerate(GRADE_INFO.items()):
+        count = stats_dict.get(grade, 0)
+        with cols[idx]:
+            st.metric(
+                label=info["label"],
+                value=format_number(count),
+                help=info["desc"]
+            )
+else:
+    st.info("暂无处理结果数据")
 
 # 页脚信息
 st.divider()

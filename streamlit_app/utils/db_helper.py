@@ -264,15 +264,19 @@ class DatabaseHelper:
         """
         last_crawl = self.pg_client.execute_query(last_crawl_query)[0]["last_time"]
 
-        # Redis 队列长度
-        queue_length = self.redis_client.get_queue_length(settings.REDIS_QUEUE_PROCESS)
+        # 待处理推文数量（processing_status = 'pending'）
+        pending_query = """
+            SELECT COUNT(*) as count FROM tweets
+            WHERE processing_status = 'pending'
+        """
+        pending_count = self.pg_client.execute_query(pending_query)[0]["count"]
 
         return {
             "user_count": user_count,
             "tweet_count": tweet_count,
             "today_count": today_count,
             "last_crawl_time": last_crawl,
-            "queue_length": queue_length,
+            "pending_count": pending_count,
         }
 
     def get_daily_tweet_stats(self, days: int = 7) -> pd.DataFrame:

@@ -478,6 +478,7 @@ class PostgresClient:
             p.tweet_id,
             t.author,
             t.content,
+            t.tweet_url,
             p.grade,
             p.summary_cn,
             p.keywords,
@@ -488,7 +489,7 @@ class PostgresClient:
         FROM processed_tweets p
         JOIN tweets t ON p.tweet_id = t.tweet_id
         {where_clause}
-        ORDER BY p.processed_at DESC
+        ORDER BY t.published_at DESC
         LIMIT %s OFFSET %s
         """
 

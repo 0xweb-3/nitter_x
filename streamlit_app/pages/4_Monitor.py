@@ -85,7 +85,7 @@ st.markdown("### 🔌 服务状态")
 
 connections = check_connections()
 
-col_status1, col_status2, col_status3 = st.columns(3)
+col_status1, col_status2, col_status3, col_status4 = st.columns(4)
 
 with col_status1:
     if connections["postgres"]:
@@ -113,6 +113,16 @@ with col_status3:
             st.warning(f"⚠️ 爬虫可能已停止\n\n最后采集: {format_relative_time(stats['last_crawl_time'])}")
     else:
         st.info("ℹ️ 爬虫未运行")
+
+with col_status4:
+    # 检查处理 Worker 状态（根据待处理推文数量）
+    stats = load_system_stats()
+    if stats["pending_count"] == 0:
+        st.success("✅ 处理队列为空")
+    elif stats["pending_count"] < 100:
+        st.info(f"ℹ️ 处理中\n\n待处理: {stats['pending_count']} 条")
+    else:
+        st.warning(f"⚠️ 队列积压\n\n待处理: {stats['pending_count']} 条")
 
 st.markdown("---")
 
@@ -144,8 +154,8 @@ try:
 
     with col_metric4:
         st.metric(
-            label="📥 待处理任务",
-            value=format_number(stats["queue_length"]),
+            label="📥 待处理推文",
+            value=format_number(stats["pending_count"]),
         )
 
     st.markdown("---")
@@ -245,7 +255,7 @@ try:
 
                 共采集 **{format_number(stats["today_count"])}** 条推文
 
-                队列中还有 **{format_number(stats["queue_length"])}** 条待处理
+                还有 **{format_number(stats["pending_count"])}** 条待处理
                 """
             )
     else:
@@ -266,7 +276,7 @@ try:
             **⏱️ 采集配置**
             - 采集循环间隔: `{settings.CRAWL_INTERVAL}` 秒
             - 用户采集间隔: `{settings.CRAWL_USER_INTERVAL}` 秒
-            - 采集锁超时: `{settings.get_crawl_lock_timeout()}` 秒
+            - 单用户预估时间: `{settings.ESTIMATED_TIME_PER_USER}` 秒
             """
         )
 

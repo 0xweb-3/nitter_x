@@ -112,7 +112,11 @@ nitter_x/
 │   ├── storage/                 # 数据存储层
 │   │   ├── postgres_client.py  # PostgreSQL 客户端
 │   │   └── redis_client.py     # Redis 客户端
-│   ├── processor/               # 处理与分析层（预留）
+│   ├── processor/               # 处理与分析层
+│   │   ├── llm_client.py       # LLM 客户端封装
+│   │   ├── prompts.py          # 提示词统一管理
+│   │   ├── tweet_processor.py  # 推文处理器
+│   │   └── embedder.py         # 文本向量化模块
 │   ├── web/                     # 展示层（预留）
 │   └── utils/                   # 工具函数
 │       └── logger.py           # 日志配置
@@ -122,7 +126,8 @@ nitter_x/
 │   ├── pages/                   # 多页面目录
 │   │   ├── 1_用户管理.py
 │   │   ├── 2_推文展示.py
-│   │   └── 3_系统监控.py
+│   │   ├── 3_系统监控.py
+│   │   └── 4_处理结果.py       # 推文处理结果展示
 │   ├── components/              # 可复用组件
 │   └── utils/                   # 工具函数
 │       ├── db_helper.py        # 数据库查询辅助
@@ -132,11 +137,15 @@ nitter_x/
 ├── tests/                       # 测试目录
 ├── logs/                        # 日志目录
 ├── data/                        # 数据目录
+│   └── models/                  # 向量模型缓存
 │
 ├── main.py                      # 推文采集主程序
+├── process_worker.py            # 推文处理 Worker
 ├── manage_users.py              # 用户管理工具
 ├── discover_instances.py        # Nitter 实例发现工具
 ├── test_system.py               # 系统测试脚本
+├── test_llm.py                  # LLM 配置测试
+├── test_tweet_processing.py     # 推文处理流程测试
 ├── start_streamlit.sh           # Streamlit 启动脚本
 │
 ├── .env                         # 环境变量配置（不提交）
@@ -185,6 +194,20 @@ nitter_x/
 - 采集趋势：最近 30 天推文采集趋势图
 - Nitter 实例：显示可用实例列表和响应时间
 - 自动刷新：每 10 秒自动刷新数据
+
+#### 5. 处理结果
+- **分级统计**：显示各分级（A/B/C/D/E/F）推文数量
+- **筛选功能**：多选分级筛选（默认显示 A/B/C 级）
+- **推文卡片**：
+  - 分级标签（带颜色区分）
+  - 处理耗时显示
+  - 原文内容（可折叠）
+  - 中文摘要（仅 A/B/C 级）
+  - 关键词标签（仅 A/B/C 级）
+  - 翻译内容（如果有，可折叠）
+- **分页浏览**：支持 10/20/50/100 条/页
+- **自动刷新**：可选 60 秒自动刷新
+- **分级标准说明**：完整的分级标准和图例
 
 ---
 
@@ -256,6 +279,111 @@ tail -f logs/crawler.log
 7. 去重后存入 PostgreSQL，媒体信息（图片/视频）保存为 URL 列表
 8. 更新用户的最后采集时间
 9. 释放分布式锁，等待下一轮采集
+
+### 推文处理流程
+
+系统使用 LLM 对采集到的推文进行智能分级、翻译、摘要和向量化处理。
+
+#### 1. 配置 LLM API
+
+在 `.env` 文件中配置 LLM API 参数：
+
+```bash
+# LLM API 配置
+LLM_API_KEY=your-api-key              # API 密钥（必需）
+LLM_API_URL=https://yibuapi.com/v1   # API 端点 URL
+LLM_MODEL=gpt-3.5-turbo               # 模型名称
+```
+
+#### 2. 运行数据库迁移
+
+首次使用前需要运行迁移脚本创建处理结果表：
+
+```bash
+# 创建 processed_tweets 表和相关索引
+python migrations/add_processed_tweets.py
+```
+
+#### 3. 测试处理流程
+
+测试单条推文的处理流程：
+
+```bash
+# 测试 LLM 配置
+python test_llm.py
+
+# 测试完整处理流程
+python test_tweet_processing.py
+```
+
+#### 4. 启动处理 Worker
+
+启动后台 Worker 持续处理待处理推文：
+
+```bash
+# 启动处理 Worker（推荐在后台运行）
+python process_worker.py
+
+# 或使用 nohup 在后台运行
+nohup python process_worker.py > logs/process_worker.log 2>&1 &
+
+# 查看处理日志
+tail -f logs/process_worker.log
+```
+
+**Worker 工作流程**：
+1. 每 5 秒检查一次待处理推文（`processing_status = 'pending'`）
+2. 每批处理 10 条推文
+3. 对每条推文进行分级（A-F）
+4. 对 A/B/C 级推文进行详细处理：
+   - 检测语言，非中文自动翻译为中文
+   - 生成 30 字以内的中文摘要
+   - 提取 3-5 个关键词
+   - 生成摘要的向量表示（384 维）
+5. 保存处理结果到 `processed_tweets` 表
+6. 更新推文状态为 `completed` 或 `skipped`
+7. 推文间延迟 1 秒，避免 API 限流
+
+#### 5. 查看处理结果
+
+在 Streamlit Web UI 中查看处理结果：
+
+```bash
+# 启动 Streamlit（如果还未启动）
+streamlit run streamlit_app/app.py
+```
+
+访问 **http://localhost:8501/处理结果** 页面，可以：
+- 📊 查看各分级（A/B/C/D/E/F）统计
+- 🔍 按分级筛选推文（默认显示 A/B/C 级）
+- 📝 查看中文摘要和关键词
+- 🌐 查看翻译内容（非中文推文）
+- 📄 分页浏览结果（10/20/50/100 条/页）
+- 🔄 可选自动刷新（60 秒）
+
+#### 6. 分级标准
+
+系统根据推文与加密货币的相关性进行分级：
+
+| 分级 | 说明 | 详细处理 |
+|------|------|----------|
+| 🔴 **A级** | crypto 强相关（直接讨论加密货币、区块链、DeFi、NFT等） | ✅ 翻译、摘要、关键词、向量 |
+| 🟠 **B级** | crypto 相关（涉及加密货币相关的人物、公司、政策） | ✅ 翻译、摘要、关键词、向量 |
+| 🟡 **C级** | crypto 影响（宏观经济、金融政策、科技趋势等） | ✅ 翻译、摘要、关键词、向量 |
+| 🟢 **D级** | crypto 间接影响（一般性经济新闻、科技新闻） | ❌ 仅分级 |
+| 🔵 **E级** | 投资讨论（投资理念、资产配置，不特指加密货币） | ❌ 仅分级 |
+| ⚫ **F级** | 无关内容（与加密货币无关的内容） | ❌ 仅分级 |
+
+> **注意**：只有 A/B/C 级推文会进行翻译、摘要、关键词提取和向量化处理，D/E/F 级仅保留分级结果。
+
+#### 7. 向量模型
+
+系统使用 **sentence-transformers** 生成文本向量：
+- 模型：`paraphrase-multilingual-MiniLM-L12-v2`
+- 支持多语言（包括中文）
+- 向量维度：384
+- 模型自动下载并缓存到 `data/models/` 目录
+- 用于后续相似度检索和推荐
 
 ### 数据查询
 
@@ -336,7 +464,17 @@ docker-compose exec postgres psql -U nitter_user -d nitter_x -c "\COPY (SELECT *
   - x.com 原文链接：`tweet_url`（便于溯源）
   - 媒体信息：`media_urls`（JSONB 数组，存储图片/视频/GIF URL）
   - 媒体标志：`has_media`（布尔值，便于筛选含媒体推文）
+  - 处理状态：`processing_status`（枚举类型：pending/processing/completed/failed/skipped）
   - 标签与权重：`tags`, `weight`（预留）
+- `processed_tweets`: 推文处理结果表
+  - 基础信息：`tweet_id`（外键关联 tweets 表）
+  - 分级结果：`grade`（A/B/C/D/E/F）
+  - 中文摘要：`summary_cn`（≤30 字，仅 A/B/C 级）
+  - 关键词：`keywords`（JSONB 数组，仅 A/B/C 级）
+  - 向量表示：`embedding`（JSONB，384 维，仅 A/B/C 级）
+  - 翻译内容：`translated_content`（非中文推文的翻译）
+  - 处理耗时：`processing_time_ms`（毫秒）
+  - 处理时间：`processed_at`（UTC）
 - `watched_users`: 关注用户列表
   - 用户信息：`username`, `display_name`, `priority`
   - 采集控制：`is_active`, `last_crawled_at`
@@ -360,31 +498,60 @@ docker-compose exec postgres psql -U nitter_user -d nitter_x -c "\COPY (SELECT *
 
 ### 3. 处理与分析层（Worker）
 
-#### 3.1 LLM 客户端（✅ 已实现）
+#### 3.1 推文智能处理（✅ 已实现）
 
-提供统一的 LLM 调用接口，基于 LangChain 框架：
+系统使用 LLM 对推文进行智能分级和内容处理：
+
+**LLM 客户端**：
+- 基于 LangChain 框架
 - 支持自定义 API 端点（兼容 OpenAI API 格式）
 - 单例模式，避免重复初始化
 - 多种调用方式：简单聊天、模板聊天、批量调用
-- 完整的错误处理和日志记录
+- 统一的提示词管理（`src/processor/prompts.py`）
 
-**测试 LLM 配置**:
+**推文处理器**：
+- 分级系统（A-F）：根据与 crypto 的相关性分级
+- A/B/C 级推文详细处理：
+  - 语言检测
+  - 非中文自动翻译为中文
+  - 生成 30 字以内中文摘要
+  - 提取 3-5 个关键词
+  - 生成摘要的向量表示（384 维）
+- D/E/F 级推文仅保留分级结果
+
+**文本向量化**：
+- 使用 sentence-transformers 本地模型
+- 模型：paraphrase-multilingual-MiniLM-L12-v2
+- 支持多语言（包括中文）
+- 模型自动缓存到本地
+- 用于后续相似度检索
+
+**处理 Worker**：
+- 持续从数据库获取待处理推文
+- 批量处理（每批 10 条）
+- 自动更新推文状态（pending → processing → completed/skipped）
+- 完整的错误处理和重试机制
+- 实时统计和日志记录
+
+**测试工具**：
 ```bash
+# 测试 LLM 配置
 python test_llm.py
+
+# 测试完整处理流程
+python test_tweet_processing.py
 ```
 
 #### 3.2 文本清理（Rule-based）- 计划中
 - 去除：URL、表情符号、无效换行、RT 标记
 - 统一：编码、时间格式
 
-#### 3.3 LLM 标签系统 - 计划中
-- 输入：清洗后的推文正文 + 元数据
-- 输出：
-  - 主题标签（Crypto / AI / 宏观 / 项目）
-  - 情绪标签（利好 / 利空 / 中性）
-  - 信息类型（新闻 / 观点 / 传言）
+#### 3.3 高级标签系统 - 计划中
+- 情绪标签（利好 / 利空 / 中性）
+- 信息类型（新闻 / 观点 / 传言）
+- 实体识别（项目名、人物、机构）
 
-#### 3.3 权重与等级计算
+#### 3.4 权重与等级计算 - 计划中
 - 多因子加权模型：作者权重、标签权重、时效性、互动指标
 - 最终映射为等级：S / A / B / C
 
@@ -506,12 +673,44 @@ CRAWLER_DELAY=1.0           # 每个用户采集间隔（秒）
 - 推文媒体信息采集（图片/视频/GIF）
 - 推文展示 UI 优化（内容优先设计）
 
-### ⏳ v3.0.0 - 内容处理（开发中）
-- 文本清洗
-- LLM 标签系统
-- 权重与等级计算
+### ✅ v3.0.0 - 智能处理（已完成）
+- **LLM 集成**：
+  - LangChain 框架集成
+  - 自定义 API 端点支持
+  - 统一提示词管理
+- **推文分级系统**：
+  - A-F 分级（基于与 crypto 的相关性）
+  - 分级标准定义和验证
+- **内容处理**：
+  - 语言检测和自动翻译（A/B/C 级）
+  - 30 字中文摘要生成（A/B/C 级）
+  - 关键词提取（A/B/C 级）
+- **文本向量化**：
+  - sentence-transformers 本地模型
+  - 多语言支持（384 维向量）
+  - 模型自动缓存
+- **处理 Worker**：
+  - 批量处理机制
+  - 状态管理和错误处理
+  - 实时统计和日志
+- **数据库支持**：
+  - processed_tweets 表
+  - processing_status 枚举类型
+  - 索引优化
+- **UI 展示**：
+  - 处理结果页面
+  - 分级筛选和统计
+  - 摘要和关键词展示
+
+### ⏳ v3.5.0 - 高级处理（计划中）
+- 文本清洗（Rule-based）
+- 情绪分析标签
+- 信息类型识别
+- 实体识别（项目名、人物、机构）
 
 ### ⏳ v4.0.0 - 内容展示（计划中）
+- 基于向量的相似度检索
+- 智能推荐系统
 - 高级筛选功能
 - Webhook 推送
 - 邮件/Bot 通知
