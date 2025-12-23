@@ -122,10 +122,8 @@ def main():
     logger.info("推文采集任务启动（持续运行模式）")
     logger.info(f"采集循环间隔: {settings.CRAWL_INTERVAL} 秒")
     logger.info(f"用户采集间隔: {settings.CRAWL_USER_INTERVAL} 秒")
-    logger.info(
-        f"采集任务锁超时: {settings.get_crawl_lock_timeout()} 秒 "
-        f"({settings.CRAWL_INTERVAL} × {settings.CRAWL_LOCK_TIMEOUT_MULTIPLIER}，防止死锁）"
-    )
+    logger.info(f"单个用户预估采集时间: {settings.ESTIMATED_TIME_PER_USER} 秒")
+    logger.info("采集任务锁超时: 动态计算（基于待采集用户数）")
     logger.info("按 Ctrl+C 优雅退出")
     logger.info("=" * 80)
 
@@ -160,33 +158,8 @@ def main():
             logger.info(f"开始第 {cycle_count} 轮采集")
             logger.info("=" * 80)
 
-            # 尝试获取采集锁
-            lock_value = redis_client.acquire_lock(
-                lock_name, expire=settings.get_crawl_lock_timeout()
-            )
-
-            if not lock_value:
-                # 未能获取锁，说明上一轮还在执行
-                logger.warning(
-                    f"⚠️  无法获取采集锁，上一轮采集可能还在执行中，跳过本轮采集"
-                )
-                logger.info("=" * 80)
-
-                # 等待下一轮
-                if running:
-                    logger.info(f"等待 {settings.CRAWL_INTERVAL} 秒后重试...")
-                    wait_time = settings.CRAWL_INTERVAL
-                    while wait_time > 0 and running:
-                        sleep_chunk = min(1, wait_time)
-                        time.sleep(sleep_chunk)
-                        wait_time -= sleep_chunk
-                continue
-
-            # 成功获取锁，开始采集
-            logger.info(f"✓ 成功获取采集锁，开始本轮采集")
-
             try:
-                # 获取需要采集的用户列表（只获取距上次采集超过指定时间的用户）
+                # 先获取需要采集的用户列表（只获取距上次采集超过指定时间的用户）
                 watched_users = pg_client.get_watched_users(
                     active_only=True, min_interval_seconds=settings.CRAWL_USER_INTERVAL
                 )
@@ -195,10 +168,6 @@ def main():
                     logger.info(
                         f"暂无需要采集的用户（所有用户都在 {settings.CRAWL_USER_INTERVAL} 秒采集间隔内）"
                     )
-                    # 没有用户需要采集，立即释放锁
-                    redis_client.release_lock(lock_name, lock_value)
-                    lock_value = None  # 标记锁已释放，避免 finally 重复释放
-                    logger.info(f"✓ 已释放采集锁（无用户需要采集）")
                     logger.info("=" * 80)
 
                     # 等待下一轮
@@ -211,9 +180,39 @@ def main():
                             wait_time -= sleep_chunk
                     continue
 
+                # 根据用户数动态计算锁超时时间
+                lock_timeout = settings.calculate_lock_timeout(len(watched_users))
                 logger.info(
-                    f"本轮需要采集 {len(watched_users)} 个用户: "
-                    f"{', '.join([u['username'] for u in watched_users])}"
+                    f"本轮需要采集 {len(watched_users)} 个用户，"
+                    f"预估耗时 {len(watched_users) * settings.ESTIMATED_TIME_PER_USER} 秒，"
+                    f"锁超时设置为 {lock_timeout} 秒"
+                )
+
+                # 尝试获取采集锁
+                lock_value = redis_client.acquire_lock(lock_name, expire=lock_timeout)
+
+                if not lock_value:
+                    # 未能获取锁，说明上一轮还在执行
+                    logger.warning(
+                        f"⚠️  无法获取采集锁，上一轮采集可能还在执行中，跳过本轮采集"
+                    )
+                    logger.info("=" * 80)
+
+                    # 等待下一轮
+                    if running:
+                        logger.info(f"等待 {settings.CRAWL_INTERVAL} 秒后重试...")
+                        wait_time = settings.CRAWL_INTERVAL
+                        while wait_time > 0 and running:
+                            sleep_chunk = min(1, wait_time)
+                            time.sleep(sleep_chunk)
+                            wait_time -= sleep_chunk
+                    continue
+
+                # 成功获取锁，开始采集
+                logger.info(f"✓ 成功获取采集锁，开始本轮采集")
+
+                logger.info(
+                    f"待采集用户: {', '.join([u['username'] for u in watched_users])}"
                 )
 
                 total_new = 0

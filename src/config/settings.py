@@ -57,14 +57,28 @@ class Settings:
     CRAWL_USER_INTERVAL: int = int(
         os.getenv("CRAWL_USER_INTERVAL", "180")
     )  # 用户采集间隔（秒）
-    CRAWL_LOCK_TIMEOUT_MULTIPLIER: int = int(
-        os.getenv("CRAWL_LOCK_TIMEOUT_MULTIPLIER", "3")
-    )  # 锁超时倍数
+    ESTIMATED_TIME_PER_USER: int = int(
+        os.getenv("ESTIMATED_TIME_PER_USER", "5")
+    )  # 单个用户采集预估时间（秒）
 
     @classmethod
-    def get_crawl_lock_timeout(cls) -> int:
-        """获取采集任务锁超时时间（CRAWL_INTERVAL * CRAWL_LOCK_TIMEOUT_MULTIPLIER）"""
-        return cls.CRAWL_INTERVAL * cls.CRAWL_LOCK_TIMEOUT_MULTIPLIER
+    def calculate_lock_timeout(cls, user_count: int) -> int:
+        """
+        计算采集任务锁超时时间（动态计算，基于用户数量）
+
+        公式：user_count * ESTIMATED_TIME_PER_USER + CRAWL_INTERVAL
+
+        Args:
+            user_count: 需要采集的用户数量
+
+        Returns:
+            锁超时时间（秒）
+        """
+        # 基础超时 = 用户数 × 单用户预估时间 + 一个循环间隔作为缓冲
+        timeout = user_count * cls.ESTIMATED_TIME_PER_USER + cls.CRAWL_INTERVAL
+        # 设置最小超时时间为 2 倍 CRAWL_INTERVAL，避免过小的超时
+        min_timeout = cls.CRAWL_INTERVAL * 2
+        return max(timeout, min_timeout)
 
     # Redis 队列名称
     REDIS_QUEUE_CRAWL: str = "queue:crawl"

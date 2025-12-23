@@ -31,8 +31,15 @@
 ### 采集配置
 - `CRAWL_INTERVAL`: 采集循环间隔（秒）
 - `CRAWL_USER_INTERVAL`: 用户采集间隔（秒）
+- `ESTIMATED_TIME_PER_USER`: 单个用户预估采集时间（秒），用于动态计算锁超时时间
 - `CRAWLER_TIMEOUT`: 请求超时（秒）
 - `CRAWLER_DELAY`: 每个用户采集间隔（秒）
+
+**锁超时机制**：
+- 采集任务使用分布式锁防止并发冲突
+- 锁超时时间动态计算：`user_count × ESTIMATED_TIME_PER_USER + CRAWL_INTERVAL`
+- 最小超时时间为 `2 × CRAWL_INTERVAL`
+- 根据待采集用户数自动调整，避免超时过长或过短
 
 ### 日志配置
 - `LOG_LEVEL`: 日志级别（DEBUG/INFO/WARNING/ERROR）

@@ -167,10 +167,17 @@ nitter_x/
 - 删除用户：删除监听用户（推文数据保留）
 
 #### 3. 推文展示
-- 推文列表：卡片式展示推文内容
-- 筛选功能：按用户、时间范围、关键词筛选
-- 分页浏览：自定义每页显示数量
-- 数据导出：导出为 CSV 格式
+- **推文列表**：卡片式展示推文内容
+- **作者信息**：显示格式为 `@username (展示名)`
+- **媒体展示**：
+  - 支持图片、视频、GIF 展示
+  - 使用可折叠面板，第一个媒体默认展开
+  - 图片自适应宽度，视频嵌入播放器
+- **原文链接**：显示 x.com 原始链接，便于溯源
+- **筛选功能**：按用户、时间范围、关键词筛选（折叠在底部）
+- **分页浏览**：自定义每页显示数量（10/20/50/100）
+- **数据导出**：导出为 CSV 格式（当前页/全部）
+- **内容优先**：打开即显示推文，筛选后置
 
 #### 4. 系统监控
 - 服务状态：PostgreSQL、Redis、爬虫运行状态
@@ -202,7 +209,7 @@ python discover_instances.py --max-response-time 3.0
 ```
 
 **特性**：
-- ✅ Redis 缓存（3 小时有效期）
+- ✅ Redis 缓存（5 分钟有效期，快速适应实例可用性变化）
 - ✅ 自动健康检测
 - ✅ 按响应时间排序
 - ✅ 支持多种实例来源（内置、状态页面）
@@ -240,12 +247,15 @@ tail -f logs/crawler.log
 ```
 
 **工作流程**：
-1. 从数据库读取所有活跃的关注用户
-2. 按优先级顺序遍历每个用户
-3. 从 Nitter 实例获取用户最新推文
-4. 与数据库中最新推文 ID 对比，只采集新推文
-5. 去重后存入 PostgreSQL
-6. 更新用户的最后采集时间
+1. 从数据库读取所有活跃的关注用户（距上次采集超过指定时间）
+2. 根据用户数动态计算锁超时时间
+3. 获取分布式锁（防止并发采集冲突）
+4. 按优先级顺序遍历每个用户
+5. 从 Nitter 实例获取用户最新推文
+6. 与数据库中最新推文 ID 对比，只采集新推文
+7. 去重后存入 PostgreSQL，媒体信息（图片/视频）保存为 URL 列表
+8. 更新用户的最后采集时间
+9. 释放分布式锁，等待下一轮采集
 
 ### 数据查询
 
@@ -321,10 +331,18 @@ docker-compose exec postgres psql -U nitter_user -d nitter_x -c "\COPY (SELECT *
 存储**结构化、可追溯的最终数据**：
 
 **主要表**：
-- `tweets`: 推文主表（原始推文、清洗后内容、标签、权重）
+- `tweets`: 推文主表
+  - 推文基础信息：`tweet_id`, `author`, `content`, `published_at`
+  - x.com 原文链接：`tweet_url`（便于溯源）
+  - 媒体信息：`media_urls`（JSONB 数组，存储图片/视频/GIF URL）
+  - 媒体标志：`has_media`（布尔值，便于筛选含媒体推文）
+  - 标签与权重：`tags`, `weight`（预留）
 - `watched_users`: 关注用户列表
-- `tag_definitions`: 标签定义表
-- `processing_logs`: 处理日志表
+  - 用户信息：`username`, `display_name`, `priority`
+  - 采集控制：`is_active`, `last_crawled_at`
+  - 备注：`notes`
+- `tag_definitions`: 标签定义表（预留）
+- `processing_logs`: 处理日志表（预留）
 
 **时间管理**：
 - 所有时间字段使用 `TIMESTAMP WITH TIME ZONE`（UTC）
@@ -333,10 +351,10 @@ docker-compose exec postgres psql -U nitter_user -d nitter_x -c "\COPY (SELECT *
 
 #### Redis（中间态与队列）
 
-- **实例缓存**：可用 Nitter 实例列表（3 小时 TTL）
+- **实例缓存**：可用 Nitter 实例列表（5 分钟 TTL，快速适应实例可用性变化）
 - **采集队列**：新推文 ID / URL
 - **处理队列**：等待 LLM 处理的推文（预留）
-- **去重缓存**：短期 tweet_id / hash
+- **去重缓存**：短期 tweet_id / hash（24 小时 TTL）
 
 > Redis 只保存"短生命周期状态"，PostgreSQL 才是事实源（Source of Truth）。
 
@@ -415,9 +433,16 @@ docker-compose exec redis redis-cli -a xin_x DEL nitter:instances:available
 ```bash
 CRAWL_INTERVAL=60           # 采集循环间隔（秒）
 CRAWL_USER_INTERVAL=180     # 用户采集间隔（秒）
+ESTIMATED_TIME_PER_USER=5   # 单个用户预估采集时间（秒），用于动态计算锁超时
 CRAWLER_TIMEOUT=30          # 请求超时（秒）
 CRAWLER_DELAY=1.0           # 每个用户采集间隔（秒）
 ```
+
+**锁超时机制**：
+- 系统使用分布式锁防止并发采集冲突
+- 锁超时时间根据待采集用户数动态计算：`user_count × ESTIMATED_TIME_PER_USER + CRAWL_INTERVAL`
+- 最小超时时间为 `2 × CRAWL_INTERVAL`，确保即使用户数较少也不会超时过快
+- 例如：采集 20 个用户时，超时为 160 秒（20×5+60）；采集 50 个用户时，超时为 310 秒（50×5+60）
 
 ---
 
@@ -457,10 +482,16 @@ CRAWLER_DELAY=1.0           # 每个用户采集间隔（秒）
 
 ### ✅ v2.5.0 - Web UI（已完成）
 - Streamlit 管理界面
-- 用户管理页面
-- 推文展示页面
+- 用户管理页面（增删改查）
+- 推文展示页面（支持媒体展示、原文链接）
 - 系统监控页面
 - 数据导出功能
+
+### ✅ v2.6.0 - 优化改进（已完成）
+- 实例发现缓存优化（5 分钟 TTL）
+- 动态锁超时机制（基于用户数自动计算）
+- 推文媒体信息采集（图片/视频/GIF）
+- 推文展示 UI 优化（内容优先设计）
 
 ### ⏳ v3.0.0 - 内容处理（开发中）
 - 文本清洗
