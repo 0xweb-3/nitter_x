@@ -292,3 +292,9 @@ else:
 # 页脚信息
 st.divider()
 st.caption("💡 提示：运行 `python process_worker.py` 启动处理 Worker 来处理待处理推文")
+
+# 自动刷新逻辑（在页面渲染完成后执行）
+if auto_refresh:
+    import time
+    time.sleep(20)
+    st.rerun()
