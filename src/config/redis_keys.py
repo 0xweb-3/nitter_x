@@ -13,5 +13,6 @@ REDIS_QUEUE_PROCESS = "queue:process"  # 处理队列
 REDIS_SET_DEDUP = "set:dedup"  # 去重集合
 
 # 缓存过期时间（秒）
-CACHE_EXPIRE_INSTANCES = 3 * 60 * 60  # 3小时
+CACHE_EXPIRE_INSTANCES = 3 * 60 * 60  # 3小时（预留，未使用）
+CACHE_EXPIRE_INSTANCE_DISCOVERY = 5 * 60  # 5分钟（实例发现缓存）
 CACHE_EXPIRE_DEDUP = 24 * 60 * 60  # 24小时

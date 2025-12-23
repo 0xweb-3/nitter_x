@@ -203,6 +203,96 @@ class PostgresClient:
             logger.error(f"添加关注用户失败: {e}")
             return False
 
+    def update_watched_user(
+        self,
+        username: str,
+        display_name: str = None,
+        priority: int = None,
+        is_active: bool = None,
+        notes: str = None,
+    ) -> bool:
+        """
+        更新关注用户信息
+
+        Args:
+            username: 用户名
+            display_name: 显示名称（可选）
+            priority: 优先级（可选）
+            is_active: 是否启用（可选）
+            notes: 备注（可选）
+
+        Returns:
+            是否更新成功
+        """
+        # 构建动态 UPDATE 语句
+        updates = []
+        params = []
+
+        if display_name is not None:
+            updates.append("display_name = %s")
+            params.append(display_name)
+
+        if priority is not None:
+            updates.append("priority = %s")
+            params.append(priority)
+
+        if is_active is not None:
+            updates.append("is_active = %s")
+            params.append(is_active)
+
+        if notes is not None:
+            updates.append("notes = %s")
+            params.append(notes)
+
+        if not updates:
+            logger.warning(f"更新用户 {username} 时没有提供任何更新字段")
+            return False
+
+        # 添加 username 作为 WHERE 条件参数
+        params.append(username)
+
+        query = f"""
+        UPDATE watched_users
+        SET {', '.join(updates)}
+        WHERE username = %s
+        """
+
+        try:
+            rows = self.execute_update(query, tuple(params))
+            if rows > 0:
+                logger.info(f"成功更新关注用户: {username}")
+                return True
+            else:
+                logger.debug(f"用户不存在或未更新: {username}")
+                return False
+        except Exception as e:
+            logger.error(f"更新关注用户失败: {e}")
+            return False
+
+    def delete_watched_user(self, username: str) -> bool:
+        """
+        删除关注用户
+
+        Args:
+            username: 用户名
+
+        Returns:
+            是否删除成功
+        """
+        query = "DELETE FROM watched_users WHERE username = %s"
+
+        try:
+            rows = self.execute_update(query, (username,))
+            if rows > 0:
+                logger.info(f"成功删除关注用户: {username}")
+                return True
+            else:
+                logger.debug(f"用户不存在: {username}")
+                return False
+        except Exception as e:
+            logger.error(f"删除关注用户失败: {e}")
+            return False
+
     def close(self):
         """关闭连接池"""
         if self.pool:

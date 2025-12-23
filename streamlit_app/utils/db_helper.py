@@ -100,31 +100,13 @@ class DatabaseHelper:
         Returns:
             是否成功
         """
-        updates = []
-        params = []
-
-        if priority is not None:
-            updates.append("priority = %s")
-            params.append(priority)
-
-        if notes is not None:
-            updates.append("notes = %s")
-            params.append(notes)
-
-        if display_name is not None:
-            updates.append("display_name = %s")
-            params.append(display_name)
-
-        if is_active is not None:
-            updates.append("is_active = %s")
-            params.append(is_active)
-
-        if not updates:
-            return False
-
-        params.append(username)
-        query = f"UPDATE watched_users SET {', '.join(updates)} WHERE username = %s"
-        return self.pg_client.execute_update(query, tuple(params))
+        return self.pg_client.update_watched_user(
+            username=username,
+            priority=priority,
+            notes=notes,
+            display_name=display_name,
+            is_active=is_active,
+        )
 
     def delete_user(self, username: str) -> bool:
         """
@@ -136,8 +118,7 @@ class DatabaseHelper:
         Returns:
             是否成功
         """
-        query = "DELETE FROM watched_users WHERE username = %s"
-        return self.pg_client.execute_update(query, (username,))
+        return self.pg_client.delete_watched_user(username)
 
     # ==================== 推文查询相关 ====================
 

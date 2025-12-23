@@ -15,7 +15,7 @@ from src.utils.logger import setup_logger
 from src.crawler.instance_sources import get_default_sources
 from src.crawler.constants import KNOWN_INSTANCES
 from src.storage.redis_client import get_redis_client
-from src.config.redis_keys import REDIS_KEY_AVAILABLE_INSTANCES, CACHE_EXPIRE_INSTANCES
+from src.config.redis_keys import REDIS_KEY_AVAILABLE_INSTANCES, CACHE_EXPIRE_INSTANCE_DISCOVERY
 
 logger = setup_logger("nitter_discovery", log_file="logs/nitter_discovery.log")
 
@@ -236,10 +236,10 @@ class NitterInstanceDiscovery:
             success = redis.set_cache(
                 REDIS_KEY_AVAILABLE_INSTANCES,
                 data,
-                expire=CACHE_EXPIRE_INSTANCES
+                expire=CACHE_EXPIRE_INSTANCE_DISCOVERY
             )
             if success:
-                logger.info(f"✓ 已保存 {len(instances)} 个可用实例到 Redis 缓存（有效期 3 小时）")
+                logger.info(f"✓ 已保存 {len(instances)} 个可用实例到 Redis 缓存（有效期 5 分钟）")
             return success
         except Exception as e:
             logger.error(f"保存到 Redis 缓存失败: {e}")
@@ -379,7 +379,7 @@ def main():
         for i, url in enumerate(available_urls, 1):
             print(f"  {i}. {url}")
 
-        print("\n💡 实例列表已缓存到 Redis（有效期 3 小时）")
+        print("\n💡 实例列表已缓存到 Redis（有效期 5 分钟）")
         print("   下次调用将直接从缓存读取，无需重新检测")
 
     else:

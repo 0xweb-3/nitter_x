@@ -88,116 +88,78 @@ def load_user_list():
 
 # ==================== 主页面 ====================
 
-st.title("📝 推文展示")
-st.markdown("浏览和搜索已采集的推文")
-
-st.markdown("---")
-
-# 筛选器区域
-with st.expander("🔍 筛选条件", expanded=True):
-    col_filter1, col_filter2, col_filter3 = st.columns([2, 2, 2])
-
-    with col_filter1:
-        # 用户筛选
-        user_list = load_user_list()
-        selected_user = st.selectbox("选择用户", user_list, index=0)
-        filter_username = None if selected_user == "全部" else selected_user
-
-    with col_filter2:
-        # 时间范围筛选
-        time_range = st.selectbox(
-            "时间范围",
-            ["全部", "今天", "最近 3 天", "最近 7 天", "最近 30 天", "自定义"],
-        )
-
-        if time_range == "今天":
-            start_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = None
-        elif time_range == "最近 3 天":
-            start_date = datetime.now(timezone.utc) - timedelta(days=3)
-            end_date = None
-        elif time_range == "最近 7 天":
-            start_date = datetime.now(timezone.utc) - timedelta(days=7)
-            end_date = None
-        elif time_range == "最近 30 天":
-            start_date = datetime.now(timezone.utc) - timedelta(days=30)
-            end_date = None
-        elif time_range == "自定义":
-            col_date1, col_date2 = st.columns(2)
-            with col_date1:
-                start_date = st.date_input("开始日期", value=datetime.now(timezone.utc) - timedelta(days=7))
-                start_date = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
-            with col_date2:
-                end_date = st.date_input("结束日期", value=datetime.now(timezone.utc))
-                end_date = datetime.combine(end_date, datetime.max.time()).replace(tzinfo=timezone.utc)
-        else:
-            start_date = None
-            end_date = None
-
-    with col_filter3:
-        # 关键词搜索
-        keyword = st.text_input("关键词搜索", placeholder="搜索推文内容...")
-        filter_keyword = keyword if keyword else None
-
-    col_filter_btn1, col_filter_btn2 = st.columns([1, 5])
-
-    with col_filter_btn1:
-        if st.button("🔍 应用筛选", use_container_width=True, type="primary"):
-            st.cache_data.clear()
-            st.rerun()
-
-    with col_filter_btn2:
-        if st.button("🔄 重置筛选", use_container_width=True):
-            st.session_state.clear()
-            st.rerun()
-
-st.markdown("---")
+# 初始化筛选器默认值（使用 session_state 保持状态）
+if "filter_username" not in st.session_state:
+    st.session_state.filter_username = None
+if "filter_start_date" not in st.session_state:
+    st.session_state.filter_start_date = None
+if "filter_end_date" not in st.session_state:
+    st.session_state.filter_end_date = None
+if "filter_keyword" not in st.session_state:
+    st.session_state.filter_keyword = None
+if "page_size" not in st.session_state:
+    st.session_state.page_size = 20
 
 # 分页设置
-page_size = st.selectbox("每页显示", [10, 20, 50, 100], index=1)
-
-# 当前页码（存储在 session_state）
 if "current_page" not in st.session_state:
     st.session_state.current_page = 1
 
 # 加载数据
 try:
-    total_count = load_tweet_count(filter_username, start_date, end_date, filter_keyword)
-    total_pages = (total_count + page_size - 1) // page_size
+    total_count = load_tweet_count(
+        st.session_state.filter_username,
+        st.session_state.filter_start_date,
+        st.session_state.filter_end_date,
+        st.session_state.filter_keyword,
+    )
+    total_pages = max(1, (total_count + st.session_state.page_size - 1) // st.session_state.page_size)
 
-    # 统计信息
-    st.markdown(f"### 📊 共找到 **{format_number(total_count)}** 条推文")
+    # 确保当前页不超出范围
+    if st.session_state.current_page > total_pages:
+        st.session_state.current_page = 1
+
+    # 顶部统计和分页控制
+    col_stat, col_page_top = st.columns([3, 9])
+
+    with col_stat:
+        st.metric("📊 推文总数", format_number(total_count))
+
+    with col_page_top:
+        if total_count > 0:
+            col_page1, col_page2, col_page3 = st.columns([2, 6, 2])
+
+            with col_page1:
+                if st.button("⬅️ 上一页", disabled=(st.session_state.current_page <= 1), key="top_prev"):
+                    st.session_state.current_page -= 1
+                    st.rerun()
+
+            with col_page2:
+                st.markdown(
+                    f"<div style='text-align: center; padding-top: 0.5rem;'>"
+                    f"第 <b>{st.session_state.current_page}</b> / {total_pages} 页"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+            with col_page3:
+                if st.button("➡️ 下一页", disabled=(st.session_state.current_page >= total_pages), key="top_next"):
+                    st.session_state.current_page += 1
+                    st.rerun()
+
+    st.markdown("---")
 
     if total_count == 0:
-        st.info("📭 没有找到符合条件的推文")
+        st.info("📭 没有找到符合条件的推文，请尝试调整筛选条件（在页面底部）")
     else:
-        # 分页控制
-        col_page1, col_page2, col_page3 = st.columns([2, 6, 2])
-
-        with col_page1:
-            if st.button("⬅️ 上一页", disabled=(st.session_state.current_page <= 1)):
-                st.session_state.current_page -= 1
-                st.rerun()
-
-        with col_page2:
-            st.markdown(
-                f"<div style='text-align: center; padding-top: 0.5rem;'>"
-                f"第 <b>{st.session_state.current_page}</b> / {total_pages} 页"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-
-        with col_page3:
-            if st.button("➡️ 下一页", disabled=(st.session_state.current_page >= total_pages)):
-                st.session_state.current_page += 1
-                st.rerun()
-
-        st.markdown("---")
-
         # 加载当前页推文
-        offset = (st.session_state.current_page - 1) * page_size
+        offset = (st.session_state.current_page - 1) * st.session_state.page_size
         tweets_df = load_tweets(
-            page_size, offset, filter_username, start_date, end_date, filter_keyword
+            st.session_state.page_size,
+            offset,
+            st.session_state.filter_username,
+            st.session_state.filter_start_date,
+            st.session_state.filter_end_date,
+            st.session_state.filter_keyword,
         )
 
         # 展示推文（卡片式）
@@ -288,28 +250,121 @@ try:
                 st.session_state.current_page += 1
                 st.rerun()
 
-        # 导出功能
+    # 筛选和设置区域（放到最后）
+    st.markdown("---")
+    st.markdown("---")
+
+    with st.expander("🔍 筛选条件与设置", expanded=False):
+        st.markdown("### 📝 推文筛选")
+        st.markdown("配置筛选条件后，点击「应用筛选」按钮生效")
+
+        col_filter1, col_filter2, col_filter3 = st.columns([2, 2, 2])
+
+        with col_filter1:
+            # 用户筛选
+            user_list = load_user_list()
+            selected_user = st.selectbox("选择用户", user_list, index=0)
+            filter_username = None if selected_user == "全部" else selected_user
+
+        with col_filter2:
+            # 时间范围筛选
+            time_range = st.selectbox(
+                "时间范围",
+                ["全部", "今天", "最近 3 天", "最近 7 天", "最近 30 天", "自定义"],
+            )
+
+            if time_range == "今天":
+                start_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                end_date = None
+            elif time_range == "最近 3 天":
+                start_date = datetime.now(timezone.utc) - timedelta(days=3)
+                end_date = None
+            elif time_range == "最近 7 天":
+                start_date = datetime.now(timezone.utc) - timedelta(days=7)
+                end_date = None
+            elif time_range == "最近 30 天":
+                start_date = datetime.now(timezone.utc) - timedelta(days=30)
+                end_date = None
+            elif time_range == "自定义":
+                col_date1, col_date2 = st.columns(2)
+                with col_date1:
+                    start_date = st.date_input("开始日期", value=datetime.now(timezone.utc) - timedelta(days=7))
+                    start_date = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+                with col_date2:
+                    end_date = st.date_input("结束日期", value=datetime.now(timezone.utc))
+                    end_date = datetime.combine(end_date, datetime.max.time()).replace(tzinfo=timezone.utc)
+            else:
+                start_date = None
+                end_date = None
+
+        with col_filter3:
+            # 关键词搜索
+            keyword = st.text_input("关键词搜索", placeholder="搜索推文内容...")
+            filter_keyword = keyword if keyword else None
+
         st.markdown("---")
-        st.markdown("### 📥 导出数据")
+
+        # 分页大小设置
+        page_size = st.selectbox("每页显示", [10, 20, 50, 100], index=1)
+
+        st.markdown("---")
+
+        col_filter_btn1, col_filter_btn2 = st.columns([1, 1])
+
+        with col_filter_btn1:
+            if st.button("🔍 应用筛选", use_container_width=True, type="primary"):
+                # 保存筛选条件到 session_state
+                st.session_state.filter_username = filter_username
+                st.session_state.filter_start_date = start_date
+                st.session_state.filter_end_date = end_date
+                st.session_state.filter_keyword = filter_keyword
+                st.session_state.page_size = page_size
+                st.session_state.current_page = 1  # 重置到第一页
+                st.cache_data.clear()
+                st.rerun()
+
+        with col_filter_btn2:
+            if st.button("🔄 重置筛选", use_container_width=True):
+                # 重置所有筛选条件
+                st.session_state.filter_username = None
+                st.session_state.filter_start_date = None
+                st.session_state.filter_end_date = None
+                st.session_state.filter_keyword = None
+                st.session_state.page_size = 20
+                st.session_state.current_page = 1
+                st.cache_data.clear()
+                st.rerun()
+
+    # 导出功能
+    st.markdown("---")
+
+    with st.expander("📥 导出数据", expanded=False):
+        st.markdown("### 💾 导出推文数据")
 
         col_export1, col_export2, col_export3 = st.columns([2, 2, 6])
 
         with col_export1:
             # 导出当前页
-            csv_current = tweets_df.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(
-                label="💾 导出当前页 (CSV)",
-                data=csv_current,
-                file_name=f"tweets_page_{st.session_state.current_page}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
+            if total_count > 0:
+                csv_current = tweets_df.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(
+                    label="💾 导出当前页 (CSV)",
+                    data=csv_current,
+                    file_name=f"tweets_page_{st.session_state.current_page}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
 
         with col_export2:
             # 导出全部（限制前 10000 条）
-            if total_count <= 10000:
+            if total_count > 0 and total_count <= 10000:
                 all_tweets = load_tweets(
-                    total_count, 0, filter_username, start_date, end_date, filter_keyword
+                    total_count,
+                    0,
+                    st.session_state.filter_username,
+                    st.session_state.filter_start_date,
+                    st.session_state.filter_end_date,
+                    st.session_state.filter_keyword,
                 )
                 csv_all = all_tweets.to_csv(index=False).encode("utf-8-sig")
                 st.download_button(
@@ -319,7 +374,7 @@ try:
                     mime="text/csv",
                     use_container_width=True,
                 )
-            else:
+            elif total_count > 10000:
                 st.info(f"数据量过大（{format_number(total_count)} 条），请使用筛选后导出")
 
 except Exception as e:

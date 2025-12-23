@@ -128,6 +128,8 @@ if st.session_state.get("show_add_form", False):
 # 用户列表
 st.markdown("### 📋 用户列表")
 
+st.info("💡 **操作说明**: 在表格左侧勾选用户后，下方会显示编辑、删除等操作按钮")
+
 try:
     df = load_users()
 
@@ -201,11 +203,12 @@ try:
         # 选中行操作
         selected_rows = grid_response["selected_rows"]
 
+        st.markdown("---")
+
         if selected_rows is not None and len(selected_rows) > 0:
             selected_username = selected_rows.iloc[0]["用户名"]
             original_row = df[df["username"] == selected_username].iloc[0]
 
-            st.markdown("---")
             st.markdown(f"### ⚙️ 操作用户: **{selected_username}**")
 
             col_op1, col_op2, col_op3, col_op4 = st.columns([2, 2, 2, 4])
@@ -233,12 +236,12 @@ try:
                             st.error("❌ 操作失败")
 
             with col_op2:
-                if st.button("🗑️ 删除用户", use_container_width=True):
-                    st.session_state.confirm_delete = selected_username
-
-            with col_op3:
                 if st.button("✏️ 编辑信息", use_container_width=True):
                     st.session_state.edit_user = selected_username
+
+            with col_op3:
+                if st.button("🗑️ 删除用户", use_container_width=True):
+                    st.session_state.confirm_delete = selected_username
 
             # 确认删除
             if st.session_state.get("confirm_delete") == selected_username:
@@ -315,6 +318,9 @@ try:
                     if cancel_edit:
                         st.session_state.edit_user = None
                         st.rerun()
+        else:
+            st.markdown("### ⚙️ 用户操作")
+            st.warning("👆 请在上方表格中勾选一个用户，然后在此处进行编辑、删除等操作")
 
 except Exception as e:
     st.error(f"❌ 加载用户列表失败: {str(e)}")
