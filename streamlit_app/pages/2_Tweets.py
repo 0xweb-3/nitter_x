@@ -4,7 +4,7 @@
 """
 import sys
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import streamlit as st
 import pandas as pd
@@ -111,25 +111,25 @@ with st.expander("🔍 筛选条件", expanded=True):
         )
 
         if time_range == "今天":
-            start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            start_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = None
         elif time_range == "最近 3 天":
-            start_date = datetime.now() - timedelta(days=3)
+            start_date = datetime.now(timezone.utc) - timedelta(days=3)
             end_date = None
         elif time_range == "最近 7 天":
-            start_date = datetime.now() - timedelta(days=7)
+            start_date = datetime.now(timezone.utc) - timedelta(days=7)
             end_date = None
         elif time_range == "最近 30 天":
-            start_date = datetime.now() - timedelta(days=30)
+            start_date = datetime.now(timezone.utc) - timedelta(days=30)
             end_date = None
         elif time_range == "自定义":
             col_date1, col_date2 = st.columns(2)
             with col_date1:
-                start_date = st.date_input("开始日期", value=datetime.now() - timedelta(days=7))
-                start_date = datetime.combine(start_date, datetime.min.time())
+                start_date = st.date_input("开始日期", value=datetime.now(timezone.utc) - timedelta(days=7))
+                start_date = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
             with col_date2:
-                end_date = st.date_input("结束日期", value=datetime.now())
-                end_date = datetime.combine(end_date, datetime.max.time())
+                end_date = st.date_input("结束日期", value=datetime.now(timezone.utc))
+                end_date = datetime.combine(end_date, datetime.max.time()).replace(tzinfo=timezone.utc)
         else:
             start_date = None
             end_date = None
@@ -300,7 +300,7 @@ try:
             st.download_button(
                 label="💾 导出当前页 (CSV)",
                 data=csv_current,
-                file_name=f"tweets_page_{st.session_state.current_page}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"tweets_page_{st.session_state.current_page}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
                 use_container_width=True,
             )
@@ -315,7 +315,7 @@ try:
                 st.download_button(
                     label="💾 导出全部 (CSV)",
                     data=csv_all,
-                    file_name=f"tweets_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    file_name=f"tweets_all_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv",
                     use_container_width=True,
                 )

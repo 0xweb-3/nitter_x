@@ -33,8 +33,9 @@ class PostgresClient:
                 database=settings.POSTGRES_DB,
                 user=settings.POSTGRES_USER,
                 password=settings.POSTGRES_PASSWORD,
+                options="-c timezone=UTC",  # 设置连接时区为UTC
             )
-            logger.info("PostgreSQL 连接池初始化成功")
+            logger.info("PostgreSQL 连接池初始化成功 (timezone=UTC)")
         except Exception as e:
             logger.error(f"PostgreSQL 连接池初始化失败: {e}")
             raise

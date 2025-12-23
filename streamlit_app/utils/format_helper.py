@@ -6,13 +6,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-def format_datetime(dt: datetime, show_time: bool = True) -> str:
+def format_datetime(dt: datetime, show_time: bool = True, show_timezone: bool = False) -> str:
     """
     格式化日期时间
 
     Args:
-        dt: datetime 对象
+        dt: datetime 对象（应该是UTC时区）
         show_time: 是否显示时间
+        show_timezone: 是否显示时区标识（UTC）
 
     Returns:
         格式化后的字符串
@@ -20,8 +21,15 @@ def format_datetime(dt: datetime, show_time: bool = True) -> str:
     if dt is None:
         return "从未"
 
+    # 如果datetime带有时区信息且不是UTC，转换为UTC
+    if dt.tzinfo is not None and dt.tzinfo != timezone.utc:
+        dt = dt.astimezone(timezone.utc)
+
     if show_time:
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
+        formatted = dt.strftime("%Y-%m-%d %H:%M:%S")
+        if show_timezone:
+            formatted += " UTC"
+        return formatted
     else:
         return dt.strftime("%Y-%m-%d")
 

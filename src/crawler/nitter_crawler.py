@@ -7,7 +7,7 @@ import time
 import logging
 from typing import List, Dict, Optional
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 from bs4 import BeautifulSoup
@@ -281,7 +281,7 @@ class NitterCrawler:
 
         # 提取发布时间
         time_span = item.find("span", class_="tweet-date")
-        published_at = self._parse_timestamp(time_span) if time_span else datetime.now()
+        published_at = self._parse_timestamp(time_span) if time_span else datetime.now(timezone.utc)
 
         # 提取作者信息
         author_div = item.find("a", class_="username")
@@ -331,7 +331,9 @@ class NitterCrawler:
 
                         for fmt in formats:
                             try:
-                                return datetime.strptime(datetime_str, fmt)
+                                # 解析时间并添加UTC时区信息
+                                dt = datetime.strptime(datetime_str, fmt)
+                                return dt.replace(tzinfo=timezone.utc)
                             except ValueError:
                                 continue
 
@@ -350,16 +352,18 @@ class NitterCrawler:
 
                 for fmt in formats:
                     try:
-                        return datetime.strptime(datetime_str, fmt)
+                        # 解析时间并添加UTC时区信息
+                        dt = datetime.strptime(datetime_str, fmt)
+                        return dt.replace(tzinfo=timezone.utc)
                     except ValueError:
                         continue
 
         except Exception as e:
             logger.debug(f"解析时间戳失败: {e}")
 
-        # 默认返回当前时间
-        logger.warning("无法解析时间戳，使用当前时间")
-        return datetime.now()
+        # 默认返回当前UTC时间
+        logger.warning("无法解析时间戳，使用当前UTC时间")
+        return datetime.now(timezone.utc)
 
 
 if __name__ == "__main__":
