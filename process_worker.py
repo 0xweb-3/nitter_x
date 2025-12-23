@@ -57,21 +57,30 @@ def process_single_tweet(tweet: Dict, processor, pg_client) -> bool:
             author=tweet["author"]
         )
 
-        # 3. 保存处理结果
-        record_id = pg_client.insert_processed_tweet(result)
-        if not record_id:
-            logger.error(f"保存处理结果失败: {tweet_id}")
-            pg_client.update_tweet_processing_status(tweet_id, "failed")
-            return False
+        # 3. 保存处理结果（仅 P0/P1/P2）
+        grade = result["grade"]
+        if grade in ["P0", "P1", "P2"]:
+            # P0/P1/P2 级推文需要保存到 processed_tweets 表
+            record_id = pg_client.insert_processed_tweet(result)
+            if not record_id:
+                logger.error(f"保存处理结果失败: {tweet_id}")
+                pg_client.update_tweet_processing_status(tweet_id, "failed")
+                return False
 
-        # 4. 更新推文状态
-        final_status = "completed" if result["grade"] in ["P0", "P1", "P2", "P3", "P4", "P5"] else "skipped"
-        pg_client.update_tweet_processing_status(tweet_id, final_status)
+            logger.info(
+                f"✓ 推文处理完成: {tweet_id} | 分级: {grade} | "
+                f"耗时: {result['processing_time_ms']}ms | 已保存到 processed_tweets"
+            )
+        else:
+            # P3/P4/P5/P6 级推文不需要保存，仅记录分级
+            logger.info(
+                f"✓ 推文处理完成: {tweet_id} | 分级: {grade} | "
+                f"耗时: {result['processing_time_ms']}ms | 未保存（低级别）"
+            )
 
-        logger.info(
-            f"✓ 推文处理完成: {tweet_id} | 分级: {result['grade']} | "
-            f"耗时: {result['processing_time_ms']}ms | 状态: {final_status}"
-        )
+        # 4. 更新推文状态为 completed
+        pg_client.update_tweet_processing_status(tweet_id, "completed")
+
         return True
 
     except Exception as e:

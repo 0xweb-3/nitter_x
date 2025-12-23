@@ -71,7 +71,7 @@ def test_single_tweet():
         print(f"    分级: {result['grade']}")
         print(f"    耗时: {result['processing_time_ms']} ms")
 
-        if result['grade'] in ['A', 'B', 'C']:
+        if result['grade'] in ['P0', 'P1', 'P2']:
             print(f"    摘要: {result.get('summary_cn', '未生成')}")
             print(f"    关键词: {', '.join(result.get('keywords', []))}")
             if result.get('translated_content'):
@@ -84,26 +84,30 @@ def test_single_tweet():
         pg.update_tweet_processing_status(tweet['tweet_id'], 'failed')
         return False
 
-    # 5. 保存处理结果
+    # 5. 保存处理结果（仅 P0/P1/P2）
     print("\n5. 保存处理结果到数据库...")
     try:
-        record_id = pg.insert_processed_tweet(result)
-        if record_id:
-            print(f"  ✓ 处理结果已保存，记录 ID: {record_id}")
+        if result['grade'] in ['P0', 'P1', 'P2']:
+            # P0/P1/P2 级推文需要保存到 processed_tweets 表
+            record_id = pg.insert_processed_tweet(result)
+            if record_id:
+                print(f"  ✓ 处理结果已保存到 processed_tweets，记录 ID: {record_id}")
+            else:
+                print(f"  ✗ 保存处理结果失败")
+                return False
         else:
-            print(f"  ✗ 保存处理结果失败")
-            return False
+            # P3/P4/P5/P6 级推文不需要保存
+            print(f"  ⊙ 推文分级为 {result['grade']}，不保存到 processed_tweets（低级别）")
 
     except Exception as e:
         print(f"  ✗ 保存失败: {e}")
         return False
 
-    # 6. 更新推文状态为 completed 或 skipped
+    # 6. 更新推文状态为 completed
     print("\n6. 更新推文最终状态...")
     try:
-        final_status = 'completed' if result['grade'] in ['A', 'B', 'C', 'D', 'E'] else 'skipped'
-        pg.update_tweet_processing_status(tweet['tweet_id'], final_status)
-        print(f"  ✓ 推文状态已更新为: {final_status}")
+        pg.update_tweet_processing_status(tweet['tweet_id'], 'completed')
+        print(f"  ✓ 推文状态已更新为: completed")
     except Exception as e:
         print(f"  ✗ 更新状态失败: {e}")
 
