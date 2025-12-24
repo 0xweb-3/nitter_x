@@ -120,6 +120,39 @@ def get_stats():
     result = pg.execute_query(query)
     return result if result else []
 
+@st.cache_data(ttl=60)
+def get_pending_count():
+    """获取待处理推文数量"""
+    pg = get_postgres_client()
+
+    query = """
+    SELECT COUNT(*) as pending_count
+    FROM tweets
+    WHERE processing_status = 'pending'
+    """
+
+    result = pg.execute_query(query)
+    if result and len(result) > 0:
+        return result[0]['pending_count']
+    return 0
+
+@st.cache_data(ttl=60)
+def get_last_processing_time():
+    """获取最近一次处理的耗时"""
+    pg = get_postgres_client()
+
+    query = """
+    SELECT processing_time_ms
+    FROM processed_tweets
+    ORDER BY processed_at DESC
+    LIMIT 1
+    """
+
+    result = pg.execute_query(query)
+    if result and len(result) > 0:
+        return result[0]['processing_time_ms']
+    return None
+
 # 加载数据
 if selected_grades:
     offset = st.session_state.processed_page * page_size
@@ -278,6 +311,34 @@ with col_refresh:
     if st.button("🔄 刷新统计", key="refresh_stats"):
         st.cache_data.clear()
         st.rerun()
+
+# 获取待处理数量和最近处理耗时
+pending_count = get_pending_count()
+last_processing_time = get_last_processing_time()
+
+# 显示处理状态信息
+col_status1, col_status2 = st.columns(2)
+with col_status1:
+    st.metric(
+        label="⏳ 剩余待处理",
+        value=format_number(pending_count),
+        help="当前 processing_status = 'pending' 的推文数量"
+    )
+with col_status2:
+    if last_processing_time is not None:
+        # 将毫秒转换为秒
+        processing_time_sec = last_processing_time / 1000.0
+        st.metric(
+            label="⚡ 上一轮单条耗时",
+            value=f"{processing_time_sec:.2f}s",
+            help="最近一条处理记录的耗时"
+        )
+    else:
+        st.metric(
+            label="⚡ 上一轮单条耗时",
+            value="暂无数据",
+            help="尚未有处理记录"
+        )
 
 stats_data = get_stats()
 if stats_data:
