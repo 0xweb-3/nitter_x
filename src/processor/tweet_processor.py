@@ -82,7 +82,7 @@ class TweetProcessor:
         Returns:
             处理结果字典，包含：
             - translated_content: 中文翻译（如果原文非中文）
-            - summary_cn: 中文摘要（30字以内）
+            - summary_cn: 中文摘要（100字以内，由LLM总结而非截断）
             - keywords: 关键词列表
         """
         if grade not in ["P0", "P1", "P2"]:
@@ -115,9 +115,16 @@ class TweetProcessor:
                 if "summary_cn" not in result or "keywords" not in result:
                     raise ValueError("缺少必需字段")
 
-                # 确保摘要不超过 30 字
-                if len(result["summary_cn"]) > 30:
-                    result["summary_cn"] = result["summary_cn"][:30]
+                # 检查摘要长度（LLM应该已经控制在100字以内，这里只是兜底检查）
+                summary_len = len(result["summary_cn"])
+                if summary_len > 100:
+                    logger.warning(
+                        f"摘要长度超出限制 ({summary_len} > 100)，LLM未严格遵守提示词要求。"
+                        f"原摘要: {result['summary_cn']}"
+                    )
+                    # 作为兜底，截断到100字（但理想情况下LLM应该自己控制）
+                    result["summary_cn"] = result["summary_cn"][:100]
+                    logger.info(f"已截断摘要到100字: {result['summary_cn']}")
 
                 # 如果原文是中文，或翻译内容与原文相同，设置 translated_content 为 None
                 if result.get("is_chinese"):

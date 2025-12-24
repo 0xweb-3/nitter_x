@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS processed_tweets (
 
 COMMENT ON TABLE processed_tweets IS '推文LLM处理结果表';
 COMMENT ON COLUMN processed_tweets.grade IS '价格影响等级：P0(最高)/P1(强信号)/P2(结构性)/P3(宏观)/P4(叙事)/P5(噪音)/P6(舍弃)';
-COMMENT ON COLUMN processed_tweets.summary_cn IS '中文摘要（≤30字，仅P0/P1/P2级）';
+COMMENT ON COLUMN processed_tweets.summary_cn IS '中文摘要（≤100字，仅P0/P1/P2级）';
 COMMENT ON COLUMN processed_tweets.keywords IS '关键词数组（仅P0/P1/P2级）';
 COMMENT ON COLUMN processed_tweets.translated_content IS '翻译内容（非中文推文）';
 COMMENT ON COLUMN processed_tweets.embedding IS '向量表示（384维，仅P0/P1/P2级）';
