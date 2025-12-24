@@ -9,6 +9,7 @@ import time
 import signal
 import logging
 from typing import List, Dict
+from datetime import datetime, timezone, timedelta
 
 from src.config.settings import settings
 from src.utils.logger import setup_logger
@@ -50,21 +51,73 @@ def process_single_tweet(tweet: Dict, processor, pg_client) -> bool:
         # 1. 更新状态为 processing
         pg_client.update_tweet_processing_status(tweet_id, "processing")
 
-        # 2. 处理推文
+        # 2. 检查24小时过期判断（如果启用）
+        if settings.ENABLE_24H_EXPIRATION:
+            published_at = tweet.get("published_at")
+            if published_at:
+                # 确保 published_at 是 timezone-aware 的 datetime 对象
+                if isinstance(published_at, str):
+                    published_at = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+                elif published_at.tzinfo is None:
+                    # 如果没有时区信息，假设为 UTC
+                    published_at = published_at.replace(tzinfo=timezone.utc)
+
+                # 计算时间差
+                now = datetime.now(timezone.utc)
+                time_diff = now - published_at
+
+                # 如果超过24小时，直接标记为 P6
+                if time_diff > timedelta(hours=24):
+                    logger.info(
+                        f"推文 {tweet_id} 发布时间超过24小时 "
+                        f"({time_diff.total_seconds() / 3600:.1f}小时)，"
+                        f"自动标记为 P6（已过期）"
+                    )
+
+                    # 创建一个 P6 的处理结果（不调用 LLM）
+                    start_time = time.time()
+                    result = {
+                        "tweet_id": tweet_id,
+                        "grade": "P6",
+                        "summary_cn": None,
+                        "keywords": [],
+                        "translated_content": None,
+                        "embedding": None,
+                        "processing_time_ms": int((time.time() - start_time) * 1000),
+                    }
+
+                    # 3. 保存处理结果
+                    record_id = pg_client.insert_processed_tweet(result)
+                    if not record_id:
+                        logger.error(f"保存处理结果失败: {tweet_id}")
+                        pg_client.update_tweet_processing_status(tweet_id, "failed")
+                        return False
+
+                    # 4. 更新推文状态为 completed
+                    pg_client.update_tweet_processing_status(tweet_id, "completed")
+
+                    logger.info(
+                        f"✓ 推文处理完成（24h过期）: {tweet_id} | 分级: P6 | "
+                        f"耗时: {result['processing_time_ms']}ms | 已保存到 processed_tweets"
+                    )
+
+                    return True
+
+        # 3. 正常处理推文（未过期或未启用24h判断）
         result = processor.process_tweet(
             tweet_id=tweet_id,
             content=tweet["content"],
             author=tweet["author"]
         )
 
-        # 3. 保存处理结果
+        # 4. 保存处理结果
         record_id = pg_client.insert_processed_tweet(result)
         if not record_id:
             logger.error(f"保存处理结果失败: {tweet_id}")
             pg_client.update_tweet_processing_status(tweet_id, "failed")
             return False
 
-        # 4. 更新推文状态为 completed
+        # 5. 更新推文状态为 completed
         pg_client.update_tweet_processing_status(tweet_id, "completed")
 
         logger.info(
@@ -92,6 +145,9 @@ def main():
     logger.info("推文处理 Worker 启动")
     logger.info(f"批次大小: 10 条/批")
     logger.info(f"处理间隔: 5 秒")
+    logger.info(f"24小时过期判断: {'已启用' if settings.ENABLE_24H_EXPIRATION else '已禁用'}")
+    if settings.ENABLE_24H_EXPIRATION:
+        logger.info(f"  → 超过24小时的推文将自动标记为 P6（已过期）")
     logger.info("按 Ctrl+C 优雅退出")
     logger.info("=" * 80)
 
