@@ -84,20 +84,15 @@ def test_single_tweet():
         pg.update_tweet_processing_status(tweet['tweet_id'], 'failed')
         return False
 
-    # 5. 保存处理结果（仅 P0/P1/P2）
+    # 5. 保存处理结果
     print("\n5. 保存处理结果到数据库...")
     try:
-        if result['grade'] in ['P0', 'P1', 'P2']:
-            # P0/P1/P2 级推文需要保存到 processed_tweets 表
-            record_id = pg.insert_processed_tweet(result)
-            if record_id:
-                print(f"  ✓ 处理结果已保存到 processed_tweets，记录 ID: {record_id}")
-            else:
-                print(f"  ✗ 保存处理结果失败")
-                return False
+        record_id = pg.insert_processed_tweet(result)
+        if record_id:
+            print(f"  ✓ 处理结果已保存到 processed_tweets，记录 ID: {record_id}")
         else:
-            # P3/P4/P5/P6 级推文不需要保存
-            print(f"  ⊙ 推文分级为 {result['grade']}，不保存到 processed_tweets（低级别）")
+            print(f"  ✗ 保存处理结果失败")
+            return False
 
     except Exception as e:
         print(f"  ✗ 保存失败: {e}")
