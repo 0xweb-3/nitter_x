@@ -123,26 +123,13 @@ python manage_users.py disable <username>
 
 ### Nitter 实例管理
 
-```bash
-# 查看可用实例
-python discover_instances.py
+Nitter 实例会自动从公开列表发现并缓存到 Redis 中（15分钟）。
 
-# 强制刷新实例列表
-python discover_instances.py --force-refresh
-```
+查看当前使用的实例：
+- 访问 **系统监控** 页面
+- 或查看 `logs/crawler.log` 日志
 
 ### Bark 推送配置
-
-```bash
-# 测试推送功能
-python test_bark_push.py
-
-# 预览不同图标效果（会发送多条测试推送）
-python test_bark_icons.py
-
-# 测试启用/禁用功能
-python test_bark_enable_disable.py
-```
 
 **通过 Web 界面配置**：
 1. 访问 **http://localhost:8501**
@@ -230,12 +217,6 @@ cat backup.sql | docker-compose exec -T postgres psql -U nitter_user nitter_x
 ### 处理流程
 
 ```bash
-# 测试 LLM 配置
-python test_llm.py
-
-# 测试处理流程
-python test_tweet_processing.py
-
 # 启动处理 Worker（持续后台运行）
 python process_worker.py
 ```
@@ -247,7 +228,8 @@ Worker 自动：
    - 如果启用，超过配置时间阈值的推文自动标记为 P6（无需调用 LLM）
    - 通过 `ENABLE_24H_EXPIRATION` 和 `TWEET_EXPIRATION_HOURS` 配置
 4. 对未过期推文进行全量 LLM 处理（P0-P6）
-5. 更新处理状态和结果
+5. 高优先级推文自动推送到 Bark（如已配置）
+6. 更新处理状态和结果
 
 ---
 
@@ -293,10 +275,10 @@ docker-compose exec redis redis-cli -a <password> DEL nitter:instances:available
 
 ### 3. LLM 处理失败
 
-检查 `.env` 中的 `LLM_API_KEY` 配置，运行测试：
-```bash
-python test_llm.py
-```
+检查 `.env` 中的 `LLM_API_KEY` 配置：
+- 确保 API key 有效
+- 确认 API URL 可访问
+- 检查 process_worker.log 日志
 
 ### 4. 重置数据库
 
@@ -313,25 +295,24 @@ docker-compose up -d
 
 ### 5. Bark 推送不工作
 
-```bash
-# 1. 检查推送配置
-python test_bark_push.py
+**检查步骤**：
+1. 访问系统设置页面，确保全局推送开关已启用
+2. 检查 Bark key 是否正确配置并启用
+3. 使用 "🧪 测试推送" 按钮验证 Bark key 是否有效
+4. 验证推送级别设置包含当前推文级别（默认 P0/P1/P2）
+5. 查看 `logs/process_worker.log` 日志中的推送相关信息
 
-# 2. 检查数据库配置
+**数据库检查**：
+```bash
+# 查看推送配置
 docker-compose exec postgres psql -U nitter_user -d nitter_x -c "SELECT * FROM push_settings"
 
-# 3. 查看推送历史
-docker-compose exec postgres psql -U nitter_user -d nitter_x -c "SELECT * FROM push_history ORDER BY pushed_at DESC LIMIT 10"
-
-# 4. 检查 Bark key 状态
+# 查看 Bark keys 状态
 docker-compose exec postgres psql -U nitter_user -d nitter_x -c "SELECT * FROM bark_keys"
-```
 
-**常见问题**：
-- 确保全局推送开关已启用
-- 检查 Bark key 是否正确配置
-- 验证推送级别设置包含当前推文级别
-- 查看 process_worker.log 日志中的推送相关信息
+# 查看推送历史（最近10条）
+docker-compose exec postgres psql -U nitter_user -d nitter_x -c "SELECT * FROM push_history ORDER BY pushed_at DESC LIMIT 10"
+```
 
 ---
 
@@ -388,13 +369,11 @@ nitter_x/
 # 访问系统设置页面
 http://localhost:8501 → 系统设置
 
-# 添加 Bark key
-# 配置推送级别（默认 P0/P1/P2）
-# 启用/禁用推送开关
-
-# 测试推送
-python test_bark_push.py
-python test_bark_icons.py  # 预览不同图标效果
+# 在 Web 界面中：
+# 1. 添加 Bark key
+# 2. 配置推送级别（默认 P0/P1/P2）
+# 3. 启用/禁用推送开关
+# 4. 使用 "测试推送" 验证配置
 ```
 
 ---

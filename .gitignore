@@ -199,5 +199,13 @@ data/
 *.db
 *.sqlite
 
+# Service runtime files
 .service_info
 .service_pids
+
+# macOS
+.DS_Store
+
+# Test scripts (for local testing only)
+test_*.py
+CHANGELOG.md
