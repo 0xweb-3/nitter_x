@@ -6,6 +6,7 @@
 
 - 🐦 **智能采集** - 基于 Nitter 代理，低封禁风险，支持多实例自动切换
 - 🤖 **LLM 分析** - P0-P6 价格影响分级，自动翻译、摘要、关键词提取
+- 📲 **实时推送** - iOS Bark 推送，P0/P1/P2 高优先级消息自动通知
 - 📊 **可视化管理** - Streamlit Web 界面，支持用户管理、推文展示、系统监控
 - 💾 **完整存储** - PostgreSQL 主存储 + Redis 缓存，支持媒体资源保存
 - 🚀 **一键部署** - 自动环境检查、数据库初始化、服务启动
@@ -77,6 +78,11 @@ LLM_MODEL=gpt-3.5-turbo               # 可选
 # 推文处理配置
 ENABLE_24H_EXPIRATION=true            # 启用推文过期判断（默认启用）
 TWEET_EXPIRATION_HOURS=24             # 推文过期时间阈值（小时）
+
+# Bark 推送配置
+BARK_PUSH_ENABLED=true                # 启用 Bark 推送（默认启用）
+BARK_PUSH_GRADES=P0,P1,P2             # 推送级别（逗号分隔）
+BARK_PUSH_ICON=https://...            # 推送图标 URL
 ```
 
 ---
@@ -125,6 +131,39 @@ python discover_instances.py
 python discover_instances.py --force-refresh
 ```
 
+### Bark 推送配置
+
+```bash
+# 测试推送功能
+python test_bark_push.py
+
+# 预览不同图标效果（会发送多条测试推送）
+python test_bark_icons.py
+
+# 测试启用/禁用功能
+python test_bark_enable_disable.py
+```
+
+**通过 Web 界面配置**：
+1. 访问 **http://localhost:8501**
+2. 进入 **"⚙️ 系统设置"** 页面
+3. 在 **"🔑 Bark Keys 管理"** Tab：
+   - 添加 Bark key（支持完整 URL 或仅 key）
+   - 测试推送（验证配置）
+   - 启用/禁用特定设备
+   - 查看推送统计
+4. 在 **"📲 推送配置"** Tab：
+   - 全局推送开关
+   - 选择推送级别（默认 P0/P1/P2）
+   - 自定义推送图标
+
+**推送消息格式**：
+- 标题：`🔴 P0 级推文 - @username`
+- 内容：摘要 + 关键词
+- 点击跳转：原文链接
+- 图标：可自定义（默认 💰 钱袋）
+- 分组：Nitter-X-P0/P1/P2
+
 ### 数据库操作
 
 ```bash
@@ -164,6 +203,9 @@ cat backup.sql | docker-compose exec -T postgres psql -U nitter_user nitter_x
 | `tweets` | 推文主表 | tweet_id, author, content, media_urls, processing_status |
 | `processed_tweets` | 处理结果表 | grade (P0-P6), summary_cn, keywords, embedding |
 | `watched_users` | 监听用户 | username, priority, is_active, notes |
+| `bark_keys` | Bark 推送密钥 | key_name, bark_url, is_active, push_count |
+| `push_settings` | 推送配置 | push_enabled, push_grades, push_icon |
+| `push_history` | 推送历史 | tweet_id, push_status, pushed_at |
 
 ---
 
@@ -222,6 +264,7 @@ Worker 自动：
   - 支持自动刷新和手动刷新统计
 - **推文展示** - 卡片式展示、筛选、导出、媒体播放
 - **用户管理** - 添加/编辑/删除监听用户
+- **系统设置** - Bark 推送配置、推送级别管理、密钥管理
 - **系统监控** - 服务状态、采集趋势、实例列表
 
 ---
@@ -268,6 +311,28 @@ docker-compose down -v
 docker-compose up -d
 ```
 
+### 5. Bark 推送不工作
+
+```bash
+# 1. 检查推送配置
+python test_bark_push.py
+
+# 2. 检查数据库配置
+docker-compose exec postgres psql -U nitter_user -d nitter_x -c "SELECT * FROM push_settings"
+
+# 3. 查看推送历史
+docker-compose exec postgres psql -U nitter_user -d nitter_x -c "SELECT * FROM push_history ORDER BY pushed_at DESC LIMIT 10"
+
+# 4. 检查 Bark key 状态
+docker-compose exec postgres psql -U nitter_user -d nitter_x -c "SELECT * FROM bark_keys"
+```
+
+**常见问题**：
+- 确保全局推送开关已启用
+- 检查 Bark key 是否正确配置
+- 验证推送级别设置包含当前推文级别
+- 查看 process_worker.log 日志中的推送相关信息
+
 ---
 
 ## 📁 项目结构
@@ -280,6 +345,7 @@ nitter_x/
 │   ├── crawler/                 # 采集模块
 │   ├── processor/               # 处理模块（LLM、向量化）
 │   ├── storage/                 # 存储模块（PostgreSQL、Redis）
+│   ├── notification/            # 推送模块（Bark）
 │   ├── config/                  # 配置管理
 │   └── utils/                   # 工具函数
 ├── streamlit_app/               # Web 界面
@@ -301,8 +367,43 @@ nitter_x/
 
 ## 🔄 版本历史
 
+### v4.0.0 (2024-12-24) - iOS Bark 推送通知 ✅
+
+**新增功能**
+- 📲 **iOS Bark 推送集成** - P0/P1/P2 高优先级推文自动推送到 iOS 设备
+- 🔑 **多设备支持** - 支持配置多个 Bark keys，所有设备同时推送
+- ⚙️ **系统设置页面** - Streamlit 新增配置页面，管理推送开关、级别、密钥
+- 📊 **推送历史记录** - 完整的推送成功/失败记录和统计
+- 💬 **消息格式化** - 级别 emoji + 摘要 + 关键词 + 原文链接
+- 🎨 **自定义图标** - 支持配置推送图标（默认：💰 钱袋）
+
+**技术实现**
+- 新增 `src/notification/` 模块（Bark API 客户端 + 推送服务）
+- 新增数据库表：`bark_keys`、`push_settings`、`push_history`
+- 集成到 `process_worker.py`，推送失败不影响主流程
+- 修复 numpy 类型兼容问题（int64/bool 转换）
+
+**使用方式**
+```bash
+# 访问系统设置页面
+http://localhost:8501 → 系统设置
+
+# 添加 Bark key
+# 配置推送级别（默认 P0/P1/P2）
+# 启用/禁用推送开关
+
+# 测试推送
+python test_bark_push.py
+python test_bark_icons.py  # 预览不同图标效果
+```
+
+---
+
+### 未来规划
 - **v5.0.0** - 具备上下文的信息关联汇总后再处理
-- **v4.0.0** - 分析总结出新的热MEME，新的叙事
+- **v4.1.0** - 分析总结出新的热 MEME，新的叙事
+
+### 历史版本
 - **v3.0.0** - P0-P6 价格影响分级系统、LLM 集成、向量化、一键部署✅
 - **v2.6.0** - 媒体资源采集、实例缓存优化、动态锁超时✅
 - **v2.5.0** - Streamlit Web 界面、用户管理、系统监控✅

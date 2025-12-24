@@ -66,8 +66,8 @@ def test_numpy_int64_conversion():
             update_query = "UPDATE bark_keys SET is_active = %s WHERE id = %s"
 
             try:
-                # 使用转换后的 Python int
-                rows = pg_client.execute_update(update_query, (new_status, python_int))
+                # 使用转换后的 Python int 和 bool
+                rows = pg_client.execute_update(update_query, (bool(new_status), python_int))
                 print(f"✅ 更新成功！影响 {rows} 行")
 
                 # 验证更新
@@ -76,8 +76,8 @@ def test_numpy_int64_conversion():
                 if result and result[0]['is_active'] == new_status:
                     print(f"✅ 验证成功：状态已更改为 {new_status}")
 
-                    # 恢复原状态
-                    pg_client.execute_update(update_query, (current_status, python_int))
+                    # 恢复原状态（也需要转换 bool 类型）
+                    pg_client.execute_update(update_query, (bool(current_status), python_int))
                     print(f"✅ 已恢复原状态")
                     return True
                 else:
