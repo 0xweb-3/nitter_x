@@ -66,6 +66,14 @@ class Settings:
     ENABLE_24H_EXPIRATION: bool = os.getenv("ENABLE_24H_EXPIRATION", "true").lower() in ("true", "1", "yes")  # 启用推文过期判断（默认启用）
     TWEET_EXPIRATION_HOURS: int = int(os.getenv("TWEET_EXPIRATION_HOURS", "24"))  # 推文过期时间阈值（小时）
 
+    # Bark 推送配置
+    BARK_PUSH_ENABLED: bool = os.getenv("BARK_PUSH_ENABLED", "true").lower() in ("true", "1", "yes")
+    BARK_PUSH_GRADES: str = os.getenv("BARK_PUSH_GRADES", "P0,P1,P2")
+    BARK_PUSH_ICON: str = os.getenv(
+        "BARK_PUSH_ICON",
+        "https://em-content.zobj.net/source/apple/391/money-bag_1f4b0.png"  # 💰 钱袋
+    )
+
     @classmethod
     def calculate_lock_timeout(cls, user_count: int) -> int:
         """

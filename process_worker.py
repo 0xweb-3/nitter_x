@@ -16,6 +16,7 @@ from src.utils.logger import setup_logger
 from src.processor.tweet_processor import get_tweet_processor
 from src.storage.postgres_client import get_postgres_client
 from src.storage.redis_client import get_redis_client
+from src.notification.push_service import get_push_service
 
 # 设置日志
 logger = setup_logger("process_worker", log_file="logs/process_worker.log")
@@ -33,7 +34,7 @@ def signal_handler(sig, frame):
     running = False
 
 
-def process_single_tweet(tweet: Dict, processor, pg_client) -> bool:
+def process_single_tweet(tweet: Dict, processor, pg_client, push_service) -> bool:
     """
     处理单条推文
 
@@ -41,6 +42,7 @@ def process_single_tweet(tweet: Dict, processor, pg_client) -> bool:
         tweet: 推文数据
         processor: 推文处理器
         pg_client: PostgreSQL 客户端
+        push_service: 推送服务
 
     Returns:
         是否处理成功
@@ -121,6 +123,31 @@ def process_single_tweet(tweet: Dict, processor, pg_client) -> bool:
         # 5. 更新推文状态为 completed
         pg_client.update_tweet_processing_status(tweet_id, "completed")
 
+        # 6. 推送通知（如果满足条件）
+        try:
+            # 获取 tweet_url
+            tweet_url_query = "SELECT tweet_url FROM tweets WHERE tweet_id = %s"
+            url_result = pg_client.execute_query(tweet_url_query, (tweet_id,))
+            tweet_url = url_result[0]['tweet_url'] if url_result else None
+
+            # 调用推送服务
+            push_result = push_service.push_tweet(
+                tweet_id=tweet_id,
+                grade=result['grade'],
+                summary=result.get('summary_cn'),
+                keywords=result.get('keywords', []),
+                tweet_url=tweet_url,
+                author=tweet['author']
+            )
+
+            if push_result['pushed']:
+                logger.info(
+                    f"  → 推送通知: 成功 {push_result['success_count']}/{push_result['total_keys']}"
+                )
+        except Exception as e:
+            # 推送失败不影响主流程
+            logger.warning(f"  → 推送通知失败: {e}")
+
         logger.info(
             f"✓ 推文处理完成: {tweet_id} | 分级: {result['grade']} | "
             f"耗时: {result['processing_time_ms']}ms | 已保存到 processed_tweets"
@@ -157,6 +184,7 @@ def main():
         processor = get_tweet_processor()
         pg_client = get_postgres_client()
         redis_client = get_redis_client()
+        push_service = get_push_service()
         logger.info("✓ 所有客户端初始化成功")
     except Exception as e:
         logger.error(f"✗ 初始化失败: {e}")
@@ -205,7 +233,7 @@ def main():
                 logger.info(f"  作者: {tweet['author']}")
                 logger.info(f"  内容: {tweet['content'][:100]}...")
 
-                success = process_single_tweet(tweet, processor, pg_client)
+                success = process_single_tweet(tweet, processor, pg_client, push_service)
 
                 if success:
                     batch_success += 1
