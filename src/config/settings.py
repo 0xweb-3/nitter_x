@@ -63,7 +63,8 @@ class Settings:
     )  # 单个用户采集预估时间（秒）
 
     # 推文处理配置
-    ENABLE_24H_EXPIRATION: bool = os.getenv("ENABLE_24H_EXPIRATION", "true").lower() in ("true", "1", "yes")  # 启用24小时过期判断（默认启用）
+    ENABLE_24H_EXPIRATION: bool = os.getenv("ENABLE_24H_EXPIRATION", "true").lower() in ("true", "1", "yes")  # 启用推文过期判断（默认启用）
+    TWEET_EXPIRATION_HOURS: int = int(os.getenv("TWEET_EXPIRATION_HOURS", "24"))  # 推文过期时间阈值（小时）
 
     @classmethod
     def calculate_lock_timeout(cls, user_count: int) -> int:

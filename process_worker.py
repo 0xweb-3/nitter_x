@@ -66,10 +66,11 @@ def process_single_tweet(tweet: Dict, processor, pg_client) -> bool:
                 now = datetime.now(timezone.utc)
                 time_diff = now - published_at
 
-                # 如果超过24小时，直接标记为 P6
-                if time_diff > timedelta(hours=24):
+                # 如果超过配置的过期时间，直接标记为 P6
+                expiration_threshold = timedelta(hours=settings.TWEET_EXPIRATION_HOURS)
+                if time_diff > expiration_threshold:
                     logger.info(
-                        f"推文 {tweet_id} 发布时间超过24小时 "
+                        f"推文 {tweet_id} 发布时间超过 {settings.TWEET_EXPIRATION_HOURS} 小时 "
                         f"({time_diff.total_seconds() / 3600:.1f}小时)，"
                         f"自动标记为 P6（已过期）"
                     )
@@ -97,7 +98,7 @@ def process_single_tweet(tweet: Dict, processor, pg_client) -> bool:
                     pg_client.update_tweet_processing_status(tweet_id, "completed")
 
                     logger.info(
-                        f"✓ 推文处理完成（24h过期）: {tweet_id} | 分级: P6 | "
+                        f"✓ 推文处理完成（{settings.TWEET_EXPIRATION_HOURS}h过期）: {tweet_id} | 分级: P6 | "
                         f"耗时: {result['processing_time_ms']}ms | 已保存到 processed_tweets"
                     )
 
@@ -145,9 +146,9 @@ def main():
     logger.info("推文处理 Worker 启动")
     logger.info(f"批次大小: 10 条/批")
     logger.info(f"处理间隔: 5 秒")
-    logger.info(f"24小时过期判断: {'已启用' if settings.ENABLE_24H_EXPIRATION else '已禁用'}")
+    logger.info(f"推文过期判断: {'已启用' if settings.ENABLE_24H_EXPIRATION else '已禁用'}")
     if settings.ENABLE_24H_EXPIRATION:
-        logger.info(f"  → 超过24小时的推文将自动标记为 P6（已过期）")
+        logger.info(f"  → 超过 {settings.TWEET_EXPIRATION_HOURS} 小时的推文将自动标记为 P6（已过期）")
     logger.info("按 Ctrl+C 优雅退出")
     logger.info("=" * 80)
 
