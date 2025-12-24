@@ -269,14 +269,27 @@ else:
 
 # 统计概览（放在底部）
 st.divider()
-st.subheader("📈 统计概览")
+
+# 添加刷新按钮
+col_title, col_refresh = st.columns([10, 2])
+with col_title:
+    st.subheader("📈 统计概览（所有级别）")
+with col_refresh:
+    if st.button("🔄 刷新统计", key="refresh_stats"):
+        st.cache_data.clear()
+        st.rerun()
 
 stats_data = get_stats()
 if stats_data:
-    cols = st.columns(len(GRADE_INFO))
-
     # 创建统计字典
     stats_dict = {row['grade']: row['count'] for row in stats_data}
+
+    # 显示总计
+    total_count = sum(stats_dict.values())
+    st.caption(f"总处理数: {format_number(total_count)} 条")
+
+    # 分级统计
+    cols = st.columns(len(GRADE_INFO))
 
     for idx, (grade, info) in enumerate(GRADE_INFO.items()):
         count = stats_dict.get(grade, 0)
