@@ -74,6 +74,12 @@ class Settings:
         "https://em-content.zobj.net/source/apple/391/money-bag_1f4b0.png"  # 💰 钱袋
     )
 
+    # Ollama 本地筛选配置
+    OLLAMA_ENABLED: bool = os.getenv("OLLAMA_ENABLED", "false").lower() in ("true", "1", "yes")
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+    OLLAMA_TIMEOUT: int = int(os.getenv("OLLAMA_TIMEOUT", "10"))
+
     @classmethod
     def calculate_lock_timeout(cls, user_count: int) -> int:
         """

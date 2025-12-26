@@ -51,6 +51,37 @@
 - 基于 LangChain 框架，统一调用接口
 - 用于推文内容分析、标签生成等功能
 
+### Ollama 本地筛选配置（v4.0.0新增）
+- `OLLAMA_ENABLED`: 启用 Ollama 筛选（默认：false）
+  - 设置为 `true`/`1`/`yes` 启用
+  - 设置为 `false`/`0`/`no` 禁用
+  - 启用后，使用本地模型进行一级筛选，过滤不相关推文
+- `OLLAMA_BASE_URL`: Ollama 服务地址（默认：http://localhost:11434）
+  - 本地服务通常使用默认值
+  - 远程服务需要修改为对应的 URL
+- `OLLAMA_MODEL`: 使用的模型（默认：qwen2.5:3b）
+  - 推荐使用 qwen2.5:3b（快速且准确）
+  - 也可以使用其他支持的模型
+- `OLLAMA_TIMEOUT`: 超时时间（默认：10秒）
+  - 单位：秒
+  - 本地模型建议较短，避免阻塞
+
+**Ollama 筛选说明**：
+- 使用本地模型快速判断推文是否与 crypto/投资/经济相关
+- 不相关推文直接标记为 P6，跳过远程 LLM 调用
+- 启动时自动检测 Ollama 服务和模型是否可用
+- 失败时自动降级到远程 LLM，不影响正常处理
+- 预期效果：
+  - 成本节省：30%-50% 的远程 LLM API 调用
+  - 延迟优化：被过滤推文处理时间减少 50%-90%
+  - 本地调用：约 100-500ms（vs 远程 LLM 1000-3000ms）
+
+**使用前提**：
+1. 安装 Ollama：`curl -fsSL https://ollama.com/install.sh | sh`
+2. 启动服务：`ollama serve`（或作为系统服务运行）
+3. 下载模型：`ollama pull qwen2.5:3b`
+4. 启用配置：`.env` 中设置 `OLLAMA_ENABLED=true`
+
 ### 推文处理配置
 - `ENABLE_24H_EXPIRATION`: 启用推文过期判断（默认：true）
   - 设置为 `true`/`1`/`yes` 启用

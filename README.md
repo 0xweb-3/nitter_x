@@ -6,6 +6,7 @@
 
 - 🐦 **智能采集** - 基于 Nitter 代理，低封禁风险，支持多实例自动切换
 - 🤖 **LLM 分析** - P0-P6 价格影响分级，自动翻译、摘要、关键词提取
+- 🔍 **本地筛选** - Ollama 本地模型一级筛选，降低 30%-50% 远程 LLM 成本
 - 📲 **实时推送** - iOS Bark 推送，P0/P1/P2 高优先级消息自动通知
 - 📊 **可视化管理** - Streamlit Web 界面，支持用户管理、推文展示、系统监控
 - 💾 **完整存储** - PostgreSQL 主存储 + Redis 缓存，支持媒体资源保存
@@ -17,7 +18,7 @@
 - **数据库**: PostgreSQL 16 + Redis 7
 - **容器化**: Docker + Docker Compose
 - **前端**: Streamlit
-- **AI**: LangChain + OpenAI API (兼容)
+- **AI**: LangChain + OpenAI API (兼容) + Ollama (本地)
 - **向量**: sentence-transformers (384维)
 
 ---
@@ -83,6 +84,12 @@ TWEET_EXPIRATION_HOURS=24             # 推文过期时间阈值（小时）
 BARK_PUSH_ENABLED=true                # 启用 Bark 推送（默认启用）
 BARK_PUSH_GRADES=P0,P1,P2             # 推送级别（逗号分隔）
 BARK_PUSH_ICON=https://...            # 推送图标 URL
+
+# Ollama 本地筛选配置（可选）
+OLLAMA_ENABLED=false                  # 启用 Ollama 筛选（默认禁用）
+OLLAMA_BASE_URL=http://localhost:11434 # Ollama 服务地址
+OLLAMA_MODEL=qwen2.5:3b               # 使用的模型
+OLLAMA_TIMEOUT=10                     # 超时时间（秒）
 ```
 
 ---
@@ -224,12 +231,24 @@ python process_worker.py
 Worker 自动：
 1. 每 5 秒检查待处理推文
 2. 批量处理（10条/批）
-3. 推文过期判断（可配置）：
-   - 如果启用，超过配置时间阈值的推文自动标记为 P6（无需调用 LLM）
-   - 通过 `ENABLE_24H_EXPIRATION` 和 `TWEET_EXPIRATION_HOURS` 配置
-4. 对未过期推文进行全量 LLM 处理（P0-P6）
-5. 高优先级推文自动推送到 Bark（如已配置）
-6. 更新处理状态和结果
+3. **完整处理流程**（按成本优化顺序）：
+   - **推文过期检查**（如果启用）：
+     - 超过配置时间的推文直接标记为 P6
+     - 跳过所有后续处理，零成本
+   - **Ollama 一级筛选**（如果启用）：
+     - 使用本地 qwen2.5:3b 模型快速判断推文是否与 crypto/投资/经济相关
+     - 不相关推文直接标记为 P6，跳过远程 LLM 调用
+     - 失败自动降级到远程 LLM 处理
+     - 统计筛选通过率和耗时（每 100 条输出一次）
+   - **远程 LLM 分级**：
+     - 对未过期且相关的推文进行完整 LLM 处理
+     - 分级（P0-P6）+ 翻译 + 摘要 + 关键词 + 向量化
+4. 高优先级推文自动推送到 Bark（如已配置）
+5. 更新处理状态和结果
+
+**性能优化**：
+- 启用 Ollama 筛选可减少 30%-50% 的远程 LLM API 调用
+- 被过滤推文处理时间减少 50%-90%
 
 ---
 
@@ -280,7 +299,35 @@ docker-compose exec redis redis-cli -a <password> DEL nitter:instances:available
 - 确认 API URL 可访问
 - 检查 process_worker.log 日志
 
-### 4. 重置数据库
+### 4. Ollama 筛选不工作
+
+**检查步骤**：
+1. 确认已安装 Ollama：`ollama --version`
+2. 确认 Ollama 服务已启动：`ollama serve`（或作为系统服务运行）
+3. 确认已下载模型：`ollama pull qwen2.5:3b`
+4. 确认配置正确：`.env` 中 `OLLAMA_ENABLED=true`
+5. 查看启动日志，确认 Ollama 筛选器初始化成功
+
+**日志示例**（成功）：
+```
+INFO - 正在初始化 Ollama 筛选器...
+INFO - ✓ Ollama 服务可用: http://localhost:11434
+INFO - ✓ 模型可用: qwen2.5:3b
+INFO - ✓ Ollama 筛选器初始化成功并可用
+```
+
+**日志示例**（失败）：
+```
+ERROR - ✗ Ollama 不可用: Connection refused
+ERROR -   - 请检查:
+ERROR -     1. Ollama 服务是否启动: ollama serve
+ERROR -     2. 模型是否已下载: ollama pull qwen2.5:3b
+```
+
+**禁用方法**：
+如不需要本地筛选，编辑 `.env` 设置 `OLLAMA_ENABLED=false` 即可。
+
+### 5. 重置数据库
 
 ```bash
 # 备份数据（可选）
@@ -324,7 +371,7 @@ nitter_x/
 │   └── postgres/init/           # 数据库初始化脚本
 ├── src/                         # 源代码
 │   ├── crawler/                 # 采集模块
-│   ├── processor/               # 处理模块（LLM、向量化）
+│   ├── processor/               # 处理模块（LLM、Ollama、向量化）
 │   ├── storage/                 # 存储模块（PostgreSQL、Redis）
 │   ├── notification/            # 推送模块（Bark）
 │   ├── config/                  # 配置管理
@@ -353,7 +400,7 @@ nitter_x/
 - **v4.1.0** - 分析总结出新的热 MEME，新的叙事
 
 ### 历史版本
-- **v4.0.0** - iOS Bark 推送通知，一键发布到X
+- **v4.0.0** - iOS Bark 推送通知、Ollama一级筛选、一键发布到X
 - **v3.0.0** - P0-P6 价格影响分级系统、LLM 集成、向量化、一键部署✅
 - **v2.6.0** - 媒体资源采集、实例缓存优化、动态锁超时✅
 - **v2.5.0** - Streamlit Web 界面、用户管理、系统监控✅

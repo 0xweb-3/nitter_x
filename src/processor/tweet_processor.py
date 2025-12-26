@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from src.processor.llm_client import get_llm_client
 from src.processor.prompts import TweetProcessingPrompts
 from src.processor.embedder import generate_embedding
+from src.processor.ollama_filter import get_ollama_filter
 from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,19 @@ class TweetProcessor:
         """初始化处理器"""
         self.llm_client = get_llm_client()
         self.prompts = TweetProcessingPrompts
+
+        # 初始化 Ollama 筛选器（如果启用）
+        self.ollama_filter = None
+        if settings.OLLAMA_ENABLED:
+            try:
+                self.ollama_filter = get_ollama_filter()
+                if self.ollama_filter and self.ollama_filter.enabled:
+                    logger.info("✓ Ollama 筛选器初始化成功并可用")
+                else:
+                    logger.warning("✗ Ollama 筛选器初始化失败，已禁用本地筛选")
+            except Exception as e:
+                logger.warning(f"✗ Ollama 筛选器初始化异常: {e}，已禁用本地筛选")
+
         logger.info("推文处理器初始化成功")
 
     def grade_tweet(self, content: str) -> str:
@@ -147,7 +161,7 @@ class TweetProcessor:
             return None
 
     def process_tweet(
-        self, tweet_id: str, content: str, author: str = ""
+        self, tweet_id: str, content: str, author: str = "", published_at: str = ""
     ) -> Dict[str, Any]:
         """
         完整处理一条推文
@@ -156,6 +170,7 @@ class TweetProcessor:
             tweet_id: 推文 ID
             content: 推文内容
             author: 作者用户名（可选）
+            published_at: 推文发布时间（ISO格式字符串，可选）
 
         Returns:
             处理结果字典：
@@ -165,16 +180,100 @@ class TweetProcessor:
             - keywords: 关键词列表（可能为空）
             - translated_content: 翻译内容（可能为 None）
             - processing_time_ms: 处理耗时（毫秒）
+            - filter_source: 筛选来源（expired/ollama_filtered/remote_llm）
         """
         start_time = time.time()
 
         logger.info(f"开始处理推文: {tweet_id} (作者: {author or '未知'})")
 
-        # 1. 分级
+        # 默认筛选来源
+        filter_source = "remote_llm"
+
+        # 第一步：检查推文是否过期（如果启用）
+        if settings.ENABLE_24H_EXPIRATION and published_at:
+            try:
+                # 确保 published_at 是 timezone-aware 的 datetime 对象
+                if isinstance(published_at, str):
+                    pub_dt = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+                else:
+                    pub_dt = published_at
+                    if pub_dt.tzinfo is None:
+                        # 如果没有时区信息，假设为 UTC
+                        pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+
+                # 计算时间差
+                now = datetime.now(timezone.utc)
+                time_diff = now - pub_dt
+
+                # 如果超过配置的过期时间，直接标记为 P6
+                expiration_threshold = timedelta(hours=settings.TWEET_EXPIRATION_HOURS)
+                if time_diff > expiration_threshold:
+                    filter_source = "expired"
+                    logger.info(
+                        f"推文 {tweet_id} 发布时间超过 {settings.TWEET_EXPIRATION_HOURS} 小时 "
+                        f"({time_diff.total_seconds() / 3600:.1f}小时)，"
+                        f"自动标记为 P6（已过期）"
+                    )
+
+                    return {
+                        "tweet_id": tweet_id,
+                        "grade": "P6",
+                        "summary_cn": None,
+                        "keywords": [],
+                        "translated_content": None,
+                        "embedding": None,
+                        "processing_time_ms": int((time.time() - start_time) * 1000),
+                        "filter_source": filter_source
+                    }
+            except Exception as e:
+                logger.warning(f"过期检查失败: {e}，继续正常处理")
+
+        # 第二步：Ollama 一级筛选
+
+        if self.ollama_filter and self.ollama_filter.enabled:
+            try:
+                filter_start = time.time()
+                is_relevant = self.ollama_filter.is_relevant(content)
+                filter_time = int((time.time() - filter_start) * 1000)
+
+                logger.info(f"Ollama 筛选: {'相关' if is_relevant else '不相关'}, 耗时: {filter_time}ms")
+
+                # 记录统计
+                self.ollama_filter.record_filter(is_relevant, filter_time)
+
+                # 每 100 条输出一次统计信息
+                if self.ollama_filter.stats["total_filtered"] % 100 == 0:
+                    stats = self.ollama_filter.get_stats()
+                    logger.info(
+                        f"[Ollama统计] 总筛选: {stats['total_filtered']}条, "
+                        f"过滤率: {stats['filter_rate']:.1%}, "
+                        f"平均耗时: {stats['avg_time_ms']}ms"
+                    )
+
+                if not is_relevant:
+                    filter_source = "ollama_filtered"
+                    logger.info(f"推文被 Ollama 筛选为不相关，标记为 P6")
+
+                    return {
+                        "tweet_id": tweet_id,
+                        "grade": "P6",
+                        "summary_cn": None,
+                        "keywords": [],
+                        "translated_content": None,
+                        "embedding": None,
+                        "processing_time_ms": int((time.time() - start_time) * 1000),
+                        "filter_source": filter_source
+                    }
+            except Exception as e:
+                logger.warning(f"Ollama 筛选失败: {e}，降级到远程 LLM")
+                if self.ollama_filter:
+                    self.ollama_filter.stats["error_count"] += 1
+
+        # 第三步：远程 LLM 分级
         grade = self.grade_tweet(content)
         logger.info(f"推文 {tweet_id} 分级结果: {grade}")
 
-        # 2. 如果是高等级推文，进行详细处理
+        # 第四步：如果是高等级推文，进行详细处理
         result = {
             "tweet_id": tweet_id,
             "grade": grade,
@@ -183,6 +282,7 @@ class TweetProcessor:
             "translated_content": None,
             "embedding": None,
             "processing_time_ms": 0,
+            "filter_source": filter_source,  # 添加筛选来源
         }
 
         if grade in ["P0", "P1", "P2"]:

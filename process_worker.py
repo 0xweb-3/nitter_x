@@ -53,77 +53,26 @@ def process_single_tweet(tweet: Dict, processor, pg_client, push_service) -> boo
         # 1. 更新状态为 processing
         pg_client.update_tweet_processing_status(tweet_id, "processing")
 
-        # 2. 检查24小时过期判断（如果启用）
-        if settings.ENABLE_24H_EXPIRATION:
-            published_at = tweet.get("published_at")
-            if published_at:
-                # 确保 published_at 是 timezone-aware 的 datetime 对象
-                if isinstance(published_at, str):
-                    published_at = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
-                elif published_at.tzinfo is None:
-                    # 如果没有时区信息，假设为 UTC
-                    published_at = published_at.replace(tzinfo=timezone.utc)
-
-                # 计算时间差
-                now = datetime.now(timezone.utc)
-                time_diff = now - published_at
-
-                # 如果超过配置的过期时间，直接标记为 P6
-                expiration_threshold = timedelta(hours=settings.TWEET_EXPIRATION_HOURS)
-                if time_diff > expiration_threshold:
-                    logger.info(
-                        f"推文 {tweet_id} 发布时间超过 {settings.TWEET_EXPIRATION_HOURS} 小时 "
-                        f"({time_diff.total_seconds() / 3600:.1f}小时)，"
-                        f"自动标记为 P6（已过期）"
-                    )
-
-                    # 创建一个 P6 的处理结果（不调用 LLM）
-                    start_time = time.time()
-                    result = {
-                        "tweet_id": tweet_id,
-                        "grade": "P6",
-                        "summary_cn": None,
-                        "keywords": [],
-                        "translated_content": None,
-                        "embedding": None,
-                        "processing_time_ms": int((time.time() - start_time) * 1000),
-                    }
-
-                    # 3. 保存处理结果
-                    record_id = pg_client.insert_processed_tweet(result)
-                    if not record_id:
-                        logger.error(f"保存处理结果失败: {tweet_id}")
-                        pg_client.update_tweet_processing_status(tweet_id, "failed")
-                        return False
-
-                    # 4. 更新推文状态为 completed
-                    pg_client.update_tweet_processing_status(tweet_id, "completed")
-
-                    logger.info(
-                        f"✓ 推文处理完成（{settings.TWEET_EXPIRATION_HOURS}h过期）: {tweet_id} | 分级: P6 | "
-                        f"耗时: {result['processing_time_ms']}ms | 已保存到 processed_tweets"
-                    )
-
-                    return True
-
-        # 3. 正常处理推文（未过期或未启用24h判断）
+        # 2. 处理推文（包含过期检查、Ollama筛选、LLM分级等）
+        published_at = tweet.get("published_at", "")
         result = processor.process_tweet(
             tweet_id=tweet_id,
             content=tweet["content"],
-            author=tweet["author"]
+            author=tweet["author"],
+            published_at=published_at
         )
 
-        # 4. 保存处理结果
+        # 3. 保存处理结果
         record_id = pg_client.insert_processed_tweet(result)
         if not record_id:
             logger.error(f"保存处理结果失败: {tweet_id}")
             pg_client.update_tweet_processing_status(tweet_id, "failed")
             return False
 
-        # 5. 更新推文状态为 completed
+        # 4. 更新推文状态为 completed
         pg_client.update_tweet_processing_status(tweet_id, "completed")
 
-        # 6. 推送通知（如果满足条件）
+        # 5. 推送通知（如果满足条件）
         try:
             # 获取 tweet_url
             tweet_url_query = "SELECT tweet_url FROM tweets WHERE tweet_id = %s"
@@ -148,9 +97,21 @@ def process_single_tweet(tweet: Dict, processor, pg_client, push_service) -> boo
             # 推送失败不影响主流程
             logger.warning(f"  → 推送通知失败: {e}")
 
+        # 6. 输出处理结果（包含处理方式标识）
+        filter_source = result.get('filter_source', 'remote_llm')
+
+        # 根据 filter_source 生成标识
+        if filter_source == 'expired':
+            source_label = "过期检查"
+        elif filter_source == 'ollama_filtered':
+            source_label = "Ollama筛选"
+        else:  # remote_llm
+            source_label = "远程LLM"
+
         logger.info(
             f"✓ 推文处理完成: {tweet_id} | 分级: {result['grade']} | "
-            f"耗时: {result['processing_time_ms']}ms | 已保存到 processed_tweets"
+            f"处理方式: {source_label} | 耗时: {result['processing_time_ms']}ms | "
+            f"已保存到 processed_tweets"
         )
 
         return True

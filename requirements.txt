@@ -23,6 +23,7 @@ streamlit==1.29.0
 # LLM
 langchain==0.3.13
 langchain-openai==0.2.14
+langchain-ollama==0.2.1
 langchain-core==0.3.28
 openai==1.58.1
 sentence-transformers==3.3.1

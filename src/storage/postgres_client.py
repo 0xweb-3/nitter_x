@@ -335,6 +335,7 @@ class PostgresClient:
                 - embedding: 向量
                 - translated_content: 翻译内容
                 - processing_time_ms: 处理耗时
+                - filter_source: 筛选来源（ollama_filtered 或 remote_llm）
 
         Returns:
             插入的记录 ID，失败返回 None
@@ -344,11 +345,12 @@ class PostgresClient:
         query = """
         INSERT INTO processed_tweets (
             tweet_id, grade, summary_cn, keywords, embedding,
-            translated_content, processing_time_ms
+            translated_content, processing_time_ms, filter_source
         )
         VALUES (
             %(tweet_id)s, %(grade)s, %(summary_cn)s, %(keywords)s::jsonb,
-            %(embedding)s::jsonb, %(translated_content)s, %(processing_time_ms)s
+            %(embedding)s::jsonb, %(translated_content)s, %(processing_time_ms)s,
+            %(filter_source)s
         )
         ON CONFLICT (tweet_id) DO UPDATE SET
             grade = EXCLUDED.grade,
@@ -357,6 +359,7 @@ class PostgresClient:
             embedding = EXCLUDED.embedding,
             translated_content = EXCLUDED.translated_content,
             processing_time_ms = EXCLUDED.processing_time_ms,
+            filter_source = EXCLUDED.filter_source,
             updated_at = NOW()
         RETURNING id
         """
@@ -371,6 +374,7 @@ class PostgresClient:
                 "embedding": json.dumps(processed_data.get("embedding")) if processed_data.get("embedding") else None,
                 "translated_content": processed_data.get("translated_content"),
                 "processing_time_ms": processed_data.get("processing_time_ms"),
+                "filter_source": processed_data.get("filter_source", "remote_llm"),  # 新增
             }
 
             result = self.execute_query(query, data)

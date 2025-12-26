@@ -89,6 +89,27 @@ class TweetProcessingPrompts:
 4. 关键词应该提取与加密货币相关的核心概念
 5. 必须返回有效的 JSON 格式"""
 
+    # Ollama 筛选系统消息
+    SYSTEM_OLLAMA_FILTER = """你是一个快速的推文筛选助手。你的任务是判断推文是否与加密货币、数字货币、区块链、投资、经济、金融市场相关。采用宽松标准：只要有可能相关，就返回 YES。"""
+
+    # Ollama 筛选提示词模板
+    OLLAMA_FILTER_TEMPLATE = """请判断以下推文是否与以下任一主题相关（宽松判断）：
+
+相关主题：
+- 加密货币（Bitcoin, Ethereum, 各种代币，安全事件、大额转账）
+- 数字货币、区块链、DeFi、NFT
+- 投资、交易、金融市场
+- 经济政策、宏观经济
+- 科技（AI、Web3）对经济的影响
+
+推文内容：
+{content}
+
+如果与上述任一主题相关（即使只是间接相关），返回：YES
+如果完全无关（如日常生活、娱乐八卦、体育赛事），返回：NO
+
+只返回 YES 或 NO，不要有任何解释。"""
+
     @classmethod
     def get_grade_prompt(cls, content: str) -> str:
         """
@@ -116,6 +137,19 @@ class TweetProcessingPrompts:
             格式化后的提示词
         """
         return cls.PROCESS_TEMPLATE.format(content=content)
+
+    @classmethod
+    def get_ollama_filter_prompt(cls, content: str) -> str:
+        """
+        获取 Ollama 筛选提示词
+
+        Args:
+            content: 推文内容
+
+        Returns:
+            格式化后的提示词
+        """
+        return cls.OLLAMA_FILTER_TEMPLATE.format(content=content)
 
 
 # 导出常用提示词类
