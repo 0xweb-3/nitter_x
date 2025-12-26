@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from typing import Dict, Any, Optional, List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from src.processor.llm_client import get_llm_client
 from src.processor.prompts import TweetProcessingPrompts
