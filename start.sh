@@ -67,19 +67,112 @@ fi
 
 PYTHON_CMD=$(command_exists python3 && echo "python3" || echo "python")
 
-# 检查虚拟环境
-if [ ! -d ".venv" ]; then
-    log_warning "虚拟环境不存在，建议先创建："
-    log_info "  python3 -m venv .venv"
-    log_info "  source .venv/bin/activate"
-    log_info "  pip install -r requirements.txt"
-    log_info "  pip install -r requirements-streamlit.txt"
-    read -p "是否继续（不使用虚拟环境）？ (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+# 检查 Python 版本
+PYTHON_VERSION=$($PYTHON_CMD --version 2>&1 | awk '{print $2}')
+log_info "检测到 Python 版本: $PYTHON_VERSION"
+
+# 检查 venv 模块是否可用
+if ! $PYTHON_CMD -m venv --help >/dev/null 2>&1; then
+    log_warning "Python venv 模块不可用，正在尝试自动安装..."
+
+    # 检测系统类型并自动安装
+    if [ -f /etc/debian_version ]; then
+        # Debian/Ubuntu 系统
+        log_info "检测到 Debian/Ubuntu 系统"
+        log_info "正在安装 python3-venv..."
+
+        if sudo apt-get update && sudo apt-get install -y python3-venv; then
+            log_success "python3-venv 安装成功"
+        else
+            log_error "python3-venv 安装失败"
+            log_info "请手动运行："
+            log_info "  sudo apt-get update"
+            log_info "  sudo apt-get install python3-venv"
+            exit 1
+        fi
+
+    elif [ -f /etc/redhat-release ]; then
+        # RedHat/CentOS/Fedora 系统
+        log_info "检测到 RedHat/CentOS/Fedora 系统"
+        log_info "正在安装 python3-venv..."
+
+        if sudo yum install -y python3-venv; then
+            log_success "python3-venv 安装成功"
+        else
+            log_error "python3-venv 安装失败"
+            log_info "请手动运行："
+            log_info "  sudo yum install python3-venv"
+            exit 1
+        fi
+
+    elif [ -f /etc/arch-release ]; then
+        # Arch Linux 系统
+        log_info "检测到 Arch Linux 系统"
+        log_info "Arch Linux 的 Python 自带 venv 模块，请检查 Python 安装"
+        exit 1
+
+    else
+        # 其他系统或 macOS
+        log_error "无法自动安装 venv 模块"
+        log_info "请根据您的系统手动安装 Python venv 模块"
         exit 1
     fi
-    VENV_PYTHON=$PYTHON_CMD
+
+    # 再次检查 venv 是否可用
+    if ! $PYTHON_CMD -m venv --help >/dev/null 2>&1; then
+        log_error "venv 模块安装后仍不可用，请检查安装"
+        exit 1
+    fi
+
+    log_success "venv 模块已准备就绪"
+fi
+
+# 检查虚拟环境
+if [ ! -d ".venv" ]; then
+    log_warning "虚拟环境不存在，正在自动创建..."
+
+    # 创建虚拟环境
+    log_info "创建虚拟环境: $PYTHON_CMD -m venv .venv"
+    if ! $PYTHON_CMD -m venv .venv; then
+        log_error "虚拟环境创建失败"
+        exit 1
+    fi
+    log_success "虚拟环境创建成功"
+
+    # 设置虚拟环境 Python 路径
+    VENV_PYTHON=".venv/bin/python"
+    VENV_PIP=".venv/bin/pip"
+
+    # 升级 pip
+    log_info "升级 pip..."
+    if ! $VENV_PYTHON -m pip install --upgrade pip; then
+        log_warning "pip 升级失败，继续安装依赖..."
+    fi
+
+    # 安装依赖
+    if [ -f "requirements.txt" ]; then
+        log_info "安装主要依赖: requirements.txt"
+        if ! $VENV_PIP install -r requirements.txt; then
+            log_error "依赖安装失败: requirements.txt"
+            exit 1
+        fi
+        log_success "requirements.txt 安装完成"
+    else
+        log_warning "未找到 requirements.txt"
+    fi
+
+    if [ -f "requirements-streamlit.txt" ]; then
+        log_info "安装 Streamlit 依赖: requirements-streamlit.txt"
+        if ! $VENV_PIP install -r requirements-streamlit.txt; then
+            log_error "依赖安装失败: requirements-streamlit.txt"
+            exit 1
+        fi
+        log_success "requirements-streamlit.txt 安装完成"
+    else
+        log_warning "未找到 requirements-streamlit.txt"
+    fi
+
+    log_success "虚拟环境和依赖安装完成"
 else
     log_success "虚拟环境已存在"
     VENV_PYTHON=".venv/bin/python"
