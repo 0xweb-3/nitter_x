@@ -43,14 +43,14 @@ class Settings:
     TZ: str = os.getenv("TZ", "Asia/Shanghai")
 
     # 爬虫配置
-    CRAWLER_TIMEOUT: int = int(os.getenv("CRAWLER_TIMEOUT", "30"))
+    CRAWLER_TIMEOUT: int = int(os.getenv("CRAWLER_TIMEOUT", "60"))  # 增加超时时间到60秒，应对慢速Nitter实例
     CRAWLER_RETRY: int = int(os.getenv("CRAWLER_RETRY", "3"))
     CRAWLER_DELAY: float = float(os.getenv("CRAWLER_DELAY", "1.0"))
 
     # HTTP 请求配置
     HTTP_RETRY_COUNT: int = int(os.getenv("HTTP_RETRY_COUNT", "3"))  # HTTP 请求重试次数
     HTTP_RETRY_DELAY: float = float(
-        os.getenv("HTTP_RETRY_DELAY", "2")
+        os.getenv("HTTP_RETRY_DELAY", "3")  # 增加重试间隔到3秒，给服务器更多准备时间
     )  # HTTP 请求重试间隔（秒）
 
     # 采集循环配置
